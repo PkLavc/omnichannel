@@ -30,7 +30,7 @@ echo   4. Atualizar codigo e reiniciar
 echo   5. Configurar sincronizacao MEGA
 echo   6. Fazer backup local
 echo   7. Abrir painel administrativo local
-echo   8. Ver credenciais locais do Chatwoot
+echo   8. Ver credenciais locais do Nexus e Chatwoot
 echo   S. Ver status dos containers
 echo   X. Sair
 echo ============================================================
@@ -255,9 +255,13 @@ call :EnsureEnvironment
 if errorlevel 1 exit /b 1
 set "CW_EMAIL="
 set "CW_PASSWORD="
+set "NEXUS_EMAIL="
+set "NEXUS_PASSWORD="
 for /f "usebackq tokens=1,* delims==" %%A in ("%OMNICHANNEL_PLATFORM_ENV%") do (
   if /i "%%A"=="CHATWOOT_ADMIN_EMAIL" set "CW_EMAIL=%%B"
   if /i "%%A"=="CHATWOOT_ADMIN_PASSWORD" set "CW_PASSWORD=%%B"
+  if /i "%%A"=="NEXUS_ADMIN_USERNAME" set "NEXUS_EMAIL=%%B"
+  if /i "%%A"=="NEXUS_ADMIN_PASSWORD" set "NEXUS_PASSWORD=%%B"
 )
 if not defined CW_EMAIL (
   echo Credenciais do Chatwoot ainda nao foram configuradas.
@@ -267,9 +271,15 @@ echo.
 echo Chatwoot: http://localhost:3000/app/login
 echo Email: %CW_EMAIL%
 echo Senha: %CW_PASSWORD%
+if defined NEXUS_EMAIL (
+  echo.
+  echo Nexus: https://nexussync.pages.dev/login/9edijgqr-60xzdg0i/
+  echo Email: %NEXUS_EMAIL%
+  echo Senha: %NEXUS_PASSWORD%
+)
 echo.
 echo Estas credenciais sao locais e confidenciais.
-start "" "http://localhost:3000/app/login"
+start "" "https://nexussync.pages.dev/login/9edijgqr-60xzdg0i/"
 exit /b 0
 
 :Status
