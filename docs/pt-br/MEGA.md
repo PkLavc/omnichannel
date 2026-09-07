@@ -14,17 +14,15 @@ Cada empresa possui pastas próprias para `context`, `rag`, `rules`, `conversati
 
 Depois disso, não existe login recorrente: **Iniciar sistema** baixa antes de abrir o Docker e **Parar sistema** pausa os serviços, cria um estado portátil consistente, envia tudo depois da parada graciosa e encerra o Docker Desktop para liberar a memória do `vmmem`. Cada computador novo precisa ser autorizado uma única vez pelo mesmo menu.
 
-O início também instala a tarefa **Omnichannel - Sincronizacao automatica**. Ela verifica alterações a cada 15 minutos, aguarda 15 minutos de estabilidade antes de enviar e força uma atualização em até 2 horas quando há gravações contínuas. O backup usa dumps consistentes sem interromper o atendimento, ignora execuções simultâneas e registra o resultado em `<OMNICHANNEL_DATA_ROOT>\_local\logs\auto-sync.log`.
-
-Enquanto forem usados túneis rápidos temporários, a tarefa **Omnichannel - Monitor publico** valida Gateway e Chatwoot a cada 5 minutos. Ela tolera falhas transitórias, mas recria os túneis e republica o manifesto quando a indisponibilidade persiste. O log fica em `%LOCALAPPDATA%\Omnichannel\logs\public-monitor.log`.
+O projeto não registra tarefas agendadas, serviços de inicialização nem monitores em segundo plano. Docker, Gateway, Chatwoot e os túneis públicos são iniciados somente pela opção **Iniciar sistema**. A opção **Parar sistema** salva e envia os dados, encerra os túneis iniciados pelo projeto e fecha o Docker Desktop.
 
 O diretório `state/current` contém a cópia restaurável dos bancos PostgreSQL, Redis, anexos do Chatwoot, dados do n8n e segredos de infraestrutura. Ele cobre clientes, cartões, conversas, contexto/RAG e configurações que vivem nos volumes Docker. O arquivo `platform.env` não contém a senha do MEGA nem a credencial DPAPI vinculada ao computador. Em outro computador, o primeiro início restaura automaticamente esse estado; nos inícios seguintes, o identificador em `_local/applied-state-id` impede restaurações desnecessárias.
 
 Use a conta exclusivamente para o Omnichannel e não habilite 2FA nela enquanto o backend do `rclone` exigir um código atual a cada nova sessão; isso impediria a automação sem intervenção.
 
-## Parada segura
+## Operação manual entre computadores
 
-A opção **Iniciar sistema** registra uma tarefa do Windows para desligamentos e reinícios. Ela para os containers antes de enviar as alterações privadas. Se a instalação da tarefa falhar por permissão, abra `Omnichannel.bat` como administrador e escolha **Instalar parada automática do Windows** uma vez.
+Antes de trocar de computador, use **Parar sistema** no computador atual para salvar e enviar a versão mais recente. No outro computador, use **Iniciar sistema** para baixar os dados antes de abrir o Docker. Não execute os dois ambientes ao mesmo tempo.
 
 O log fica em `%LOCALAPPDATA%\Omnichannel\logs\shutdown.log`. A subpasta `backups` não é enviada ao MEGA.
 

@@ -50,6 +50,9 @@ try {
     CHATWOOT_FRONTEND_URL = 'http://localhost:3000'
     CHATWOOT_ADMIN_EMAIL = 'admin@example.local'
     CHATWOOT_ADMIN_PASSWORD = "$(New-Secret 18)!Aa1"
+    GOOGLE_OAUTH_CLIENT_ID = ''
+    GOOGLE_OAUTH_CLIENT_SECRET = ''
+    GOOGLE_OAUTH_CALLBACK_URL = ''
   }
   foreach ($entry in $defaults.GetEnumerator()) {
     if (-not $platform[$entry.Key]) { $platform[$entry.Key] = $entry.Value }

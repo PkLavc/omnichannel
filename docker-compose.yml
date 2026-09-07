@@ -48,6 +48,9 @@ x-chatwoot-env: &chatwoot-env
   ENABLE_ACCOUNT_SIGNUP: "false"
   CHATWOOT_ADMIN_EMAIL: ${CHATWOOT_ADMIN_EMAIL:-admin@example.local}
   CHATWOOT_ADMIN_PASSWORD: ${CHATWOOT_ADMIN_PASSWORD:-}
+  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+  GOOGLE_OAUTH_CALLBACK_URL: ${GOOGLE_OAUTH_CALLBACK_URL:-}
   RAILS_LOG_TO_STDOUT: "true"
   # Required for the Chatwoot webhook to reach the Gateway on the private Compose network.
   SAFE_FETCH_ALLOW_PRIVATE_NETWORK: "true"
@@ -55,7 +58,7 @@ x-chatwoot-env: &chatwoot-env
 services:
   postgres:
     image: *postgres-image
-    restart: unless-stopped
+    restart: "no"
     stop_grace_period: 60s
     environment: *postgres-env
     volumes:
@@ -80,7 +83,7 @@ services:
 
   redis:
     image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
-    restart: unless-stopped
+    restart: "no"
     stop_grace_period: 30s
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -105,7 +108,7 @@ services:
     build:
       context: .
       dockerfile: apps/gateway/Dockerfile
-    restart: unless-stopped
+    restart: "no"
     stop_grace_period: 60s
     environment: *gateway-env
     depends_on:
@@ -129,7 +132,7 @@ services:
 
   admin:
     image: nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
-    restart: unless-stopped
+    restart: "no"
     volumes:
       - ./apps/admin:/usr/share/nginx/html:ro
       - ./docker/admin/nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -147,7 +150,7 @@ services:
   ollama:
     image: *ollama-image
     profiles: ["local-ai"]
-    restart: unless-stopped
+    restart: "no"
     volumes:
       - ollama_data:/root/.ollama
     ports:
@@ -161,7 +164,7 @@ services:
 
   n8n:
     image: n8nio/n8n@sha256:15091606d98f6d15bad10cb26bb937ccb47dfd9fee2bb7ae44c7061cba2e7a04
-    restart: unless-stopped
+    restart: "no"
     stop_grace_period: 60s
     environment:
       DB_TYPE: postgresdb
@@ -204,7 +207,7 @@ services:
 
   chatwoot:
     image: *chatwoot-image
-    restart: unless-stopped
+    restart: "no"
     stop_grace_period: 60s
     entrypoint: docker/entrypoints/rails.sh
     command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
@@ -225,7 +228,7 @@ services:
 
   chatwoot-worker:
     image: *chatwoot-image
-    restart: unless-stopped
+    restart: "no"
     stop_grace_period: 60s
     command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
     environment: *chatwoot-env

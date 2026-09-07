@@ -14,17 +14,15 @@ Each company has separate `context`, `rag`, `rules`, `conversations`, `contacts`
 
 There is no recurring login after setup: **Start system** downloads before Docker starts and **Stop system** pauses the services, creates a consistent portable state, uploads everything after graceful shutdown, and closes Docker Desktop to release `vmmem` memory. Each new computer must be authorized once through the same menu.
 
-Startup also installs the **Omnichannel - Sincronizacao automatica** task. It checks for changes every 15 minutes, waits for 15 minutes of stability before uploading, and forces an update within 2 hours when writes are continuous. It creates consistent live dumps without interrupting service, skips overlapping runs, and logs results to `<OMNICHANNEL_DATA_ROOT>\_local\logs\auto-sync.log`.
-
-While temporary quick tunnels are in use, the **Omnichannel - Monitor publico** task checks Gateway and Chatwoot every 5 minutes. It tolerates transient failures, but recreates the tunnels and republishes the manifest after persistent unavailability. Its log is stored at `%LOCALAPPDATA%\Omnichannel\logs\public-monitor.log`.
+The project registers no scheduled tasks, startup services, or background monitors. Docker, Gateway, Chatwoot, and the public tunnels start only through **Start system**. **Stop system** saves and uploads the data, terminates tunnels started by the project, and closes Docker Desktop.
 
 The `state/current` directory contains the restorable copy of PostgreSQL, Redis, Chatwoot attachments, n8n data, and infrastructure secrets. It covers customers, cards, conversations, context/RAG, and configuration stored in Docker volumes. `platform.env` does not contain the MEGA password or the machine-bound DPAPI credential. On another computer, the first startup restores this state automatically; later startups use `_local/applied-state-id` to avoid unnecessary restores.
 
 Keep the account dedicated to Omnichannel and do not enable 2FA while the `rclone` backend requires a current code for each new session; that would prevent unattended automation.
 
-## Graceful shutdown
+## Manual operation between computers
 
-The **Start system** option registers a Windows task for shutdown and restart events. It stops the containers before uploading private changes. If task registration fails due to permissions, run `Omnichannel.bat` as administrator and select **Install automatic Windows shutdown** once.
+Before switching computers, use **Stop system** on the current computer to save and upload the latest state. On the other computer, use **Start system** to download the data before Docker opens. Do not run both environments at the same time.
 
 The log is stored at `%LOCALAPPDATA%\Omnichannel\logs\shutdown.log`. The `backups` subfolder is not uploaded to MEGA.
 

@@ -12,11 +12,10 @@ if /i "%~1"=="mega" call :ConfigureMega
 if /i "%~1"=="backup" call :Backup
 if /i "%~1"=="painel" call :OpenAdmin
 if /i "%~1"=="credenciais" call :ShowChatwootCredentials
-if /i "%~1"=="instalar-parada" call :InstallShutdown
 if /i "%~1"=="status" call :Status
 if defined OMNICHANNEL_ACTION_HANDLED exit /b %ERRORLEVEL%
 echo Acao desconhecida: %~1
-echo Use: Omnichannel.bat [iniciar^|parar^|reiniciar^|atualizar^|mega^|backup^|painel^|credenciais^|instalar-parada^|status]
+echo Use: Omnichannel.bat [iniciar^|parar^|reiniciar^|atualizar^|mega^|backup^|painel^|credenciais^|status]
 exit /b 2
 
 :Menu
@@ -32,14 +31,12 @@ echo   5. Configurar sincronizacao MEGA
 echo   6. Fazer backup local
 echo   7. Abrir painel administrativo local
 echo   8. Ver credenciais locais do Chatwoot
-echo   0. Instalar parada automatica do Windows
 echo   S. Ver status dos containers
 echo   X. Sair
 echo ============================================================
-choice /c 123456780SX /n /m "Escolha uma opcao: "
-if errorlevel 11 goto MenuExit
-if errorlevel 10 goto MenuStatus
-if errorlevel 9 goto MenuInstallShutdown
+choice /c 12345678SX /n /m "Escolha uma opcao: "
+if errorlevel 10 goto MenuExit
+if errorlevel 9 goto MenuStatus
 if errorlevel 8 goto MenuCredentials
 if errorlevel 7 goto MenuAdmin
 if errorlevel 6 goto MenuBackup
@@ -74,9 +71,6 @@ goto MenuPause
 :MenuCredentials
 call :ShowChatwootCredentials
 goto MenuPause
-:MenuInstallShutdown
-call :InstallShutdown
-goto MenuPause
 :MenuStatus
 call :Status
 goto MenuPause
@@ -94,18 +88,14 @@ title Omnichannel Platform - Iniciar
 call :EnsureEnvironment
 if errorlevel 1 exit /b 1
 
-echo [1/9] Localizando e sincronizando os dados privados...
+echo [1/8] Localizando e sincronizando os dados privados...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker\windows\Sync-PrivateData.ps1" -Direction Pull -ProjectRoot "%~dp0."
 if errorlevel 1 (
   echo ERRO: Nao foi possivel baixar os dados privados. O ambiente nao sera iniciado com dados desatualizados.
   exit /b 1
 )
 
-echo [2/9] Instalando backup automatico e parada segura do Windows...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker\windows\Install-ShutdownHandler.ps1" -ProjectRoot "%~dp0."
-if errorlevel 1 echo AVISO: As automacoes do Windows nao foram instaladas. Abra este menu como administrador e escolha a opcao 0.
-
-echo [3/9] Verificando o Docker...
+echo [2/8] Verificando o Docker...
 where docker >nul 2>&1
 if errorlevel 1 (
   echo ERRO: Docker CLI nao encontrado. Instale o Docker Desktop e tente novamente.
@@ -120,21 +110,21 @@ docker info >nul 2>&1
 if errorlevel 1 call :StartDockerDesktop
 if errorlevel 1 exit /b 1
 
-echo [4/9] Restaurando o estado portatil quando necessario...
+echo [3/8] Restaurando o estado portatil quando necessario...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker\windows\Restore-PortableState.ps1" -ProjectRoot "%~dp0."
 if errorlevel 1 (
   echo ERRO: Nao foi possivel restaurar os dados privados.
   exit /b 1
 )
 
-echo [5/9] Validando a configuracao...
+echo [4/8] Validando a configuracao...
 docker compose config --quiet
 if errorlevel 1 (
   echo ERRO: docker-compose.yml invalido.
   exit /b 1
 )
 
-echo [6/9] Construindo e iniciando os servicos...
+echo [5/8] Construindo e iniciando os servicos...
 docker compose up -d --build
 if errorlevel 1 (
   echo ERRO: Nao foi possivel iniciar os servicos.
@@ -142,7 +132,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [7/9] Aguardando os servicos ficarem prontos...
+echo [6/8] Aguardando os servicos ficarem prontos...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$deadline=(Get-Date).AddMinutes(10); $expected=@(docker compose config --services); do { $rows=@(docker compose ps --all --format json 2>$null | ForEach-Object { $_ | ConvertFrom-Json }); $failed=@($rows | Where-Object { $_.State -eq 'exited' -and [int]$_.ExitCode -ne 0 }); if ($failed.Count -gt 0) { Write-Host ('Falha: ' + (($failed | ForEach-Object { $_.Service + ' (exit ' + $_.ExitCode + ')' }) -join ', ')); exit 2 }; $ready=@($rows | Where-Object { ($_.State -eq 'running' -and (-not $_.Health -or $_.Health -eq 'healthy')) -or ($_.State -eq 'exited' -and [int]$_.ExitCode -eq 0) } | ForEach-Object { $_.Service }); $pending=@($expected | Where-Object { $_ -notin $ready }); if ($pending.Count -eq 0) { exit 0 }; Write-Host ('Aguardando: ' + ($pending -join ', ')); Start-Sleep -Seconds 5 } while ((Get-Date) -lt $deadline); Write-Host ('Tempo limite excedido. Pendentes: ' + ($pending -join ', ')); exit 3"
 if errorlevel 1 (
   echo ERRO: Um ou mais servicos nao ficaram prontos.
@@ -157,11 +147,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [8/9] Publicando o acesso externo...
+echo [7/8] Publicando o acesso externo...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker\windows\Start-Public-Access.ps1"
 if errorlevel 1 echo AVISO: O ambiente local esta pronto, mas o acesso externo nao foi publicado.
 
-echo [9/9] Ambiente pronto.
+echo [8/8] Ambiente pronto.
 docker compose ps --all
 if /i not "%NO_BROWSER%"=="1" call :OpenChrome
 echo.
@@ -195,6 +185,9 @@ if errorlevel 1 (
   echo ERRO: Os containers foram parados, mas a sincronizacao MEGA falhou.
   exit /b 1
 )
+echo Encerrando os acessos publicos iniciados por este projeto...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker\windows\Stop-Public-Access.ps1" -ProjectRoot "%~dp0."
+if errorlevel 1 echo AVISO: Nao foi possivel encerrar um ou mais tuneis publicos.
 echo Liberando a memoria usada pelo Docker e WSL...
 docker desktop stop --timeout 120 >nul 2>&1
 if errorlevel 1 echo AVISO: Feche o Docker Desktop manualmente para liberar toda a memoria do vmmem.
@@ -277,16 +270,6 @@ echo Senha: %CW_PASSWORD%
 echo.
 echo Estas credenciais sao locais e confidenciais.
 start "" "http://localhost:3000/app/login"
-exit /b 0
-
-:InstallShutdown
-set "OMNICHANNEL_ACTION_HANDLED=1"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker\windows\Install-ShutdownHandler.ps1" -ProjectRoot "%~dp0."
-if errorlevel 1 (
-  echo ERRO: Abra Omnichannel.bat como administrador e tente novamente.
-  exit /b 1
-)
-echo Backup periodico e parada segura instalados no Windows.
 exit /b 0
 
 :Status
