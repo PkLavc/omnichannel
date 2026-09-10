@@ -9,4 +9,3 @@ Unit=omnichannel-backup.service
 
 [Install]
 WantedBy=timers.target
-

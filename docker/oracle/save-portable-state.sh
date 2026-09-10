@@ -80,4 +80,3 @@ if [ -e "$PREVIOUS" ]; then
 fi
 trap - EXIT HUP INT TERM
 printf 'Estado portátil criado: %s\n' "$CURRENT"
-

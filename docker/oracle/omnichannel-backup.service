@@ -10,4 +10,3 @@ ExecStart=/opt/omnichannel/docker/oracle/mega-sync.sh push
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-
