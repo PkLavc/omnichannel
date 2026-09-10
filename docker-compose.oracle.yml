@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./docker/oracle/public-router.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/oracle/chatwoot-ui.js:/usr/share/nginx/html/omnichannel-ui.js:ro
     depends_on:
       gateway:
         condition: service_healthy
