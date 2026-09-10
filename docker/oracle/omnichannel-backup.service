@@ -1,0 +1,13 @@
+[Unit]
+Description=Backup privado do Omnichannel no MEGA
+Requires=docker.service
+After=docker.service omnichannel.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/omnichannel/docker/oracle/save-portable-state.sh
+ExecStart=/opt/omnichannel/docker/oracle/mega-sync.sh push
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+

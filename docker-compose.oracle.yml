@@ -1,0 +1,46 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  gateway:
+    restart: unless-stopped
+
+  admin:
+    restart: unless-stopped
+
+  n8n:
+    restart: unless-stopped
+
+  chatwoot:
+    restart: unless-stopped
+
+  chatwoot-worker:
+    restart: unless-stopped
+
+  public-router:
+    image: nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    restart: unless-stopped
+    volumes:
+      - ./docker/oracle/public-router.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      gateway:
+        condition: service_healthy
+      chatwoot:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  public-tunnel:
+    image: cloudflare/cloudflared@sha256:b77d84e8704db38db22c22661cf7e56468c526e3a6a5fe9c8b7c151452fa1472
+    restart: unless-stopped
+    command: ["tunnel", "--protocol", "http2", "--no-autoupdate", "--url", "http://public-router:8080"]
+    depends_on:
+      public-router:
+        condition: service_healthy

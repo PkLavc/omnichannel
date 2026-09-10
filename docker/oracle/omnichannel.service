@@ -1,0 +1,18 @@
+[Unit]
+Description=Nexus Omnichannel
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/omnichannel
+ExecStartPre=-/opt/omnichannel/docker/oracle/mega-sync.sh pull
+ExecStart=/usr/bin/docker compose --env-file /opt/omnichannel-data/config/platform.env -f /opt/omnichannel/docker-compose.yml -f /opt/omnichannel/docker-compose.oracle.yml up -d
+ExecStop=/usr/bin/docker compose --env-file /opt/omnichannel-data/config/platform.env -f /opt/omnichannel/docker-compose.yml -f /opt/omnichannel/docker-compose.oracle.yml stop
+TimeoutStartSec=600
+TimeoutStopSec=180
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Backup periódico do Omnichannel no MEGA
+
+[Timer]
+OnCalendar=Mon,Thu *-*-* 03:00:00 America/Sao_Paulo
+Persistent=true
+RandomizedDelaySec=15m
+Unit=omnichannel-backup.service
+
+[Install]
+WantedBy=timers.target
+

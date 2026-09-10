@@ -28,3 +28,40 @@ docker compose up --build -d
 One Gateway instance processes different conversations concurrently and serializes each conversation locally. Multiple replicas require a distributed queue and lock/idempotency coordination. A restart can interrupt a task that already returned HTTP `202`.
 
 The `local-ai` profile is an optional future deployment choice. It requires explicit model downloads and separately planned CPU/GPU, storage, and private networking.
+
+## Oracle Cloud Free Tier staging
+
+`docker-compose.oracle.yml` extends the main Compose file for an ARM64 Ubuntu VM. It:
+
+- applies `restart: unless-stopped` only to long-running services;
+- does not start or download Ollama;
+- keeps PostgreSQL, Redis, n8n, and local ports off the public Internet;
+- publishes Chatwoot and Gateway through one HTTPS Quick Tunnel with internal routing;
+- pins the working `cloudflared` image by digest;
+- automatically updates the Nexus manifest when the temporary address changes.
+
+The VM expects these private files:
+
+```text
+/opt/omnichannel-data/config/platform.env
+/opt/omnichannel-data/config/publication.env
+```
+
+`publication.env` must have `0600` permissions and contain `GITHUB_TOKEN`, `PUBLIC_STATUS_GIST_ID`, and optionally `PUBLIC_STATUS_GIST_FILENAME`. Limit this token to the permission needed to edit the status Gist. Never commit any of these values.
+
+After building the local Gateway image, validate and start the deployment with:
+
+```bash
+docker compose --env-file /opt/omnichannel-data/config/platform.env \
+  -f docker-compose.yml -f docker-compose.oracle.yml config --quiet
+docker compose --env-file /opt/omnichannel-data/config/platform.env \
+  -f docker-compose.yml -f docker-compose.oracle.yml build gateway
+docker compose --env-file /opt/omnichannel-data/config/platform.env \
+  -f docker-compose.yml -f docker-compose.oracle.yml up -d
+```
+
+Install `docker/oracle/omnichannel.service` and `docker/oracle/omnichannel-publisher.service` under `/etc/systemd/system/`, run `systemctl daemon-reload`, and enable both units. The first keeps the containers running continuously and starts them after VM reboots. The second publishes the Nexus manifest and marks it offline when the main service stops. There is no scheduled shutdown.
+
+MEGA is optional and communicates directly between Oracle and remote storage, without relying on a local computer. Credentials remain only in `/opt/omnichannel-data/config/mega.env` with `0600` permissions. The `save-portable-state.sh` and `mega-sync.sh` scripts create and upload the snapshot; enable the backup timer only after validating the credentials and remote destination.
+
+A Quick Tunnel is suitable only for this low-traffic staging deployment: its hostname may change and it has no uptime guarantee. Replace it with a stable hostname for production without exposing the database, Redis, or administrative tokens directly.

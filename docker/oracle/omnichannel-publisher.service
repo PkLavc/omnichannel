@@ -1,0 +1,19 @@
+[Unit]
+Description=Publicação HTTPS do Omnichannel no Nexus
+Requires=omnichannel.service
+After=omnichannel.service network-online.target
+PartOf=omnichannel.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/omnichannel/docker/oracle/publish-endpoint.sh online
+ExecStop=/opt/omnichannel/docker/oracle/publish-endpoint.sh offline
+Restart=on-failure
+RestartSec=60
+TimeoutStartSec=600
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+
