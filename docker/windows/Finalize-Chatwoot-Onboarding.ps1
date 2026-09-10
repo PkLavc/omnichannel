@@ -8,10 +8,14 @@ if User.exists? && Account.exists?
   Redis::Alfred.delete(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)
   Account.update_all(locale: "pt_BR")
   User.find_each do |existing_user|
+    conversation_filters = existing_user.ui_settings.to_h.fetch("conversations_filter_by", {}).merge(
+      "status" => "all"
+    )
     existing_user.update!(
       ui_settings: existing_user.ui_settings.to_h.merge(
         "is_conv_actions_open" => true,
-        "is_contact_sidebar_open" => true
+        "is_contact_sidebar_open" => true,
+        "conversations_filter_by" => conversation_filters
       )
     )
   end
