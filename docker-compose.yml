@@ -214,6 +214,7 @@ services:
     environment: *chatwoot-env
     volumes:
       - chatwoot_storage:/app/storage
+      - ./docker/chatwoot/active-global-conversations.rb:/app/config/initializers/active-global-conversations.rb:ro
     depends_on:
       chatwoot-migrate:
         condition: service_completed_successfully
@@ -234,6 +235,7 @@ services:
     environment: *chatwoot-env
     volumes:
       - chatwoot_storage:/app/storage
+      - ./docker/chatwoot/active-global-conversations.rb:/app/config/initializers/active-global-conversations.rb:ro
     depends_on:
       chatwoot:
         condition: service_healthy
