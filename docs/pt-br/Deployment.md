@@ -36,9 +36,9 @@ O arquivo `docker-compose.oracle.yml` complementa o Compose principal para uma V
 - aplica `restart: unless-stopped` somente aos serviços permanentes;
 - não inicia nem baixa Ollama;
 - mantém PostgreSQL, Redis, n8n e as portas locais fora da Internet;
-- publica Chatwoot e Gateway pelo mesmo Quick Tunnel HTTPS, com roteamento interno;
+- conecta a Oracle por um Named Tunnel em QUIC e entrega Chatwoot e Gateway ao proxy estável por Workers VPC;
 - fixa a imagem funcional do `cloudflared` por digest;
-- atualiza automaticamente o manifesto do Nexus quando o endereço temporário muda.
+- mantém o endereço de origem estável mesmo após reinícios da VM ou do conector.
 
 Arquivos privados esperados na VM:
 
@@ -64,4 +64,4 @@ Instale `docker/oracle/omnichannel.service` e `docker/oracle/omnichannel-publish
 
 O MEGA é opcional e atua diretamente entre a Oracle e o armazenamento remoto, sem depender de um computador local. As credenciais ficam somente em `/opt/omnichannel-data/config/mega.env`, com permissão `0600`. Os scripts `save-portable-state.sh` e `mega-sync.sh` geram e enviam o snapshot; o timer de backup deve ser habilitado somente depois de validar as credenciais e o destino remoto.
 
-Quick Tunnel é adequado apenas para esta homologação de baixo uso: o hostname pode mudar e não há garantia de disponibilidade. Em produção, substitua-o por um hostname estável sem expor diretamente banco, Redis ou tokens administrativos.
+O Named Tunnel não abre portas de entrada na Oracle. O Worker `nexus-omnichannel-origin` usa um binding privado do Workers VPC para alcançar somente o roteador HTTP interno; banco, Redis, n8n e tokens administrativos continuam sem exposição direta.

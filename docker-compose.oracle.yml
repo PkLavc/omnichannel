@@ -41,7 +41,9 @@ services:
   public-tunnel:
     image: cloudflare/cloudflared@sha256:b77d84e8704db38db22c22661cf7e56468c526e3a6a5fe9c8b7c151452fa1472
     restart: unless-stopped
-    command: ["tunnel", "--protocol", "http2", "--no-autoupdate", "--url", "http://public-router:8080"]
+    command: ["tunnel", "--protocol", "quic", "--no-autoupdate", "run", "--token-file", "/run/secrets/cloudflare-tunnel-token"]
+    volumes:
+      - /opt/omnichannel-data/config/cloudflare-tunnel-token:/run/secrets/cloudflare-tunnel-token:ro
     depends_on:
       public-router:
         condition: service_healthy

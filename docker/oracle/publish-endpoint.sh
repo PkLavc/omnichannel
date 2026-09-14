@@ -21,6 +21,8 @@ set +a
 : "${GITHUB_TOKEN:?GITHUB_TOKEN ausente em publication.env}"
 : "${PUBLIC_STATUS_GIST_ID:?PUBLIC_STATUS_GIST_ID ausente em publication.env}"
 PUBLIC_STATUS_GIST_FILENAME="${PUBLIC_STATUS_GIST_FILENAME:-nexus-omnichannel-endpoint.json}"
+: "${PUBLIC_OMNICHANNEL_ORIGIN_URL:?PUBLIC_OMNICHANNEL_ORIGIN_URL ausente em publication.env}"
+PUBLIC_CHATWOOT_FRONTEND_URL="${PUBLIC_CHATWOOT_FRONTEND_URL:-https://nexus-omnichannel.pages.dev}"
 GIST_API="https://api.github.com/gists/$PUBLIC_STATUS_GIST_ID"
 
 read_existing_manifest() {
@@ -59,36 +61,11 @@ if [ "$MODE" != "online" ]; then
   exit 2
 fi
 
-public_url=''
-tunnel_attempt=1
-while [ "$tunnel_attempt" -le 3 ] && [ -z "$public_url" ]; do
-  attempt=0
-  while [ "$attempt" -lt 75 ]; do
-    candidate="$($COMPOSE logs --no-color public-tunnel 2>&1 \
-      | grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -n 1 || true)"
-    if [ -n "$candidate" ] && curl --doh-url https://cloudflare-dns.com/dns-query -fsS --max-time 10 "$candidate/health" >/dev/null 2>&1; then
-      public_url="$candidate"
-      break
-    fi
-    attempt=$((attempt + 1))
-    sleep 2
-  done
-  if [ -z "$public_url" ] && [ "$tunnel_attempt" -lt 3 ]; then
-    echo "O endereço do túnel $tunnel_attempt não ficou acessível; solicitando outro." >&2
-    $COMPOSE up -d --no-deps --force-recreate public-tunnel >/dev/null
-  fi
-  tunnel_attempt=$((tunnel_attempt + 1))
-done
-
-if [ -z "$public_url" ]; then
-  echo 'A Cloudflare não publicou um endpoint saudável após três tentativas.' >&2
-  exit 1
-fi
-
+public_url="${PUBLIC_OMNICHANNEL_ORIGIN_URL%/}"
 current_frontend="$(sed -n 's/^CHATWOOT_FRONTEND_URL=//p' "$PLATFORM_ENV" | tail -n 1)"
-if [ "$current_frontend" != "$public_url" ]; then
+if [ "$current_frontend" != "$PUBLIC_CHATWOOT_FRONTEND_URL" ]; then
   temporary="$(mktemp "$DATA_ROOT/config/platform.env.XXXXXX")"
-  awk -v url="$public_url" '
+  awk -v url="$PUBLIC_CHATWOOT_FRONTEND_URL" '
     BEGIN { replaced = 0 }
     /^CHATWOOT_FRONTEND_URL=/ { print "CHATWOOT_FRONTEND_URL=" url; replaced = 1; next }
     { print }
@@ -122,4 +99,4 @@ publish_manifest "$manifest"
 confirmed="$(read_existing_manifest)"
 printf '%s' "$confirmed" | jq -e --arg publicUrl "$public_url" \
   '.online == true and .chatwootBaseUrl == $publicUrl and .gatewayBaseUrl == $publicUrl' >/dev/null
-printf 'Endpoint público confirmado: %s\n' "$public_url"
+printf 'Endpoint permanente confirmado: %s\n' "$public_url"

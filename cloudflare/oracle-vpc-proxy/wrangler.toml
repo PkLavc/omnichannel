@@ -1,0 +1,9 @@
+name = "nexus-omnichannel-origin"
+main = "index.js"
+compatibility_date = "2026-09-14"
+workers_dev = true
+
+[[vpc_networks]]
+binding = "ORACLE"
+tunnel_id = "3e5a3a33-5a25-4b2e-ae2b-4b937771fef7"
+remote = true
