@@ -26,7 +26,8 @@ def main():
             for index, row in enumerate(rows, 1):
                 outcome = row.get("outcome", "UNKNOWN")
                 handle.write(f"## Exemplo {index} — canal {row.get('channel', 'desconhecido')} — resultado {outcome}\n\n")
-                handle.write(str(row.get("turns", "")).strip() + "\n\n")
+                safe_turns = str(row.get("turns", "")).encode("utf-8", "replace").decode("utf-8")
+                handle.write(safe_turns.strip() + "\n\n")
     print(f"generated={len(list(args.output_dir.glob('icaiu-*.md')))}")
 
 if __name__ == "__main__":

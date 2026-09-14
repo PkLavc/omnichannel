@@ -122,7 +122,8 @@ def successful_identifiers(sales_dir: Path, brand_pattern: str) -> tuple[set[str
     # The current workbook already contains the consolidated ERP/Faturamento
     # sheets; the larger backup is retained as an audit source, not parsed twice.
     for workbook in workbooks[:1]:
-        for row in xlsx_rows(workbook, {"ERP", "Faturamento"}):
+        target_sheets = {"ERP", "Faturamento"} if brand_pattern == "icaiu" else {"Base_de_Ordens_de_Servico"}
+        for row in xlsx_rows(workbook, target_sheets):
             status = field(row, "status venda", "venda.status do sistema", "status do agendamento", "status global", "status faturamento", "status")
             successful = ("fatur" in status.casefold() or "realizou" in status.casefold() or "realizado" in status.casefold())
             if brand_pattern != "icaiu":
