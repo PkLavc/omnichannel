@@ -36,7 +36,9 @@ set -- --config /dev/null --checkers 4 --transfers 2 --retries 5 --low-level-ret
   --exclude '/archives/*.tar.gz.tmp' \
   --exclude '/config/mega.env' \
   --exclude '/config/platform.env' \
-  --exclude '/config/publication.env'
+  --exclude '/config/publication.env' \
+  --exclude '/config/cloudflare-tunnel-id' \
+  --exclude '/config/cloudflare-tunnel-token'
 
 marker="$(rclone lsf "$REMOTE/.omnichannel-data-root" --config /dev/null --checkers 2 --retries 3 --files-only)"
 if [ "$marker" != '.omnichannel-data-root' ]; then
