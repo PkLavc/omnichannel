@@ -98,6 +98,9 @@ def xlsx_rows(path: Path, sheet_names: set[str]) -> list[dict[str, str]]:
         return out
 
 def cell_value(cell: ET.Element, shared: list[str]) -> str:
+    inline = cell.find("m:is", NS)
+    if inline is not None:
+        return "".join(node.text or "" for node in inline.iter(f"{{{NS['m']}}}t"))
     value = cell.find("m:v", NS)
     raw = "" if value is None else value.text or ""
     if cell.attrib.get("t") == "s" and raw:
@@ -113,19 +116,21 @@ def field(row: dict[str, str], *names: str) -> str:
             return row[name.casefold()].strip()
     return ""
 
-def successful_identifiers(sales_dir: Path) -> tuple[set[str], set[str], dict[str, int]]:
+def successful_identifiers(sales_dir: Path, brand_pattern: str) -> tuple[set[str], set[str], dict[str, int]]:
     phones: set[str] = set(); documents: set[str] = set(); stats = Counter()
     workbooks = sorted(sales_dir.glob("*.xlsx"), key=lambda item: item.stat().st_mtime, reverse=True)
     # The current workbook already contains the consolidated ERP/Faturamento
     # sheets; the larger backup is retained as an audit source, not parsed twice.
     for workbook in workbooks[:1]:
         for row in xlsx_rows(workbook, {"ERP", "Faturamento"}):
-            status = field(row, "status venda", "venda.status do sistema", "status do agendamento")
-            successful = "fatur" in status.casefold() or "realizou" in status.casefold() or "realizado" in status.casefold()
+            status = field(row, "status venda", "venda.status do sistema", "status do agendamento", "status global", "status faturamento", "status")
+            successful = ("fatur" in status.casefold() or "realizou" in status.casefold() or "realizado" in status.casefold())
+            if brand_pattern != "icaiu":
+                successful = any(token in status.casefold() for token in ("conclu", "finaliz", "entreg", "retirad", "realiz", "fatur"))
             if not successful:
                 continue
-            phone = norm_digits(field(row, "telefone cliente", "cliente.telefone", "telefone de contato", "contato"))
-            document = norm_digits(field(row, "cpf/cnpj cliente", "cliente.cpf/cnpj", "cpf do cliente"))
+            phone = norm_digits(field(row, "telefone cliente", "cliente.telefone", "telefone de contato", "contato", "contato do cliente"))
+            document = norm_digits(field(row, "cpf/cnpj cliente", "cliente.cpf/cnpj", "cpf do cliente", "cliente"))
             if phone: phones.add(phone)
             if document: documents.add(document)
             stats["successful_rows"] += 1
@@ -157,8 +162,9 @@ def main() -> int:
     parser.add_argument("--sales-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-exemplars", type=int, default=12000)
+    parser.add_argument("--brand-pattern", default="icaiu")
     args = parser.parse_args()
-    phones, documents, sales_stats = successful_identifiers(args.sales_dir)
+    phones, documents, sales_stats = successful_identifiers(args.sales_dir, args.brand_pattern)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     role_dir = args.output_dir / "role-corpus"; role_dir.mkdir(exist_ok=True)
     handles = {role: (role_dir / f"{role}.jsonl").open("w", encoding="utf-8") for role in (*ROLES, "quality")}
@@ -174,7 +180,7 @@ def main() -> int:
             try: record = json.loads(raw_bytes.decode("utf-8"))
             except Exception: counts["invalid_json"] += 1; continue
             connection = str(((record.get("service") or {}).get("connection") or {}).get("name") or "")
-            if "icaiu" not in connection.casefold(): continue
+            if args.brand_pattern.casefold() not in connection.casefold(): continue
             messages = messages_from(record)
             if not messages: counts["without_messages"] += 1; continue
             service = record.get("service") or {}; person = service.get("person") or {}
@@ -195,7 +201,7 @@ def main() -> int:
     finally:
         for handle in handles.values(): handle.close()
         best_sales.close()
-    summary = {"generatedAt": datetime.now(timezone.utc).isoformat(), "source": {"rawDir": str(args.raw_dir), "salesDir": str(args.sales_dir)}, "salesEvidence": sales_stats, "iCaiu": {"roleDocuments": dict(counts), "channels": dict(channels), "outcomes": dict(outcomes), "salesExemplars": examples}, "privacy": {"rawFilesUnmodified": True, "piiRedacted": True, "conversationIdsHashed": True}}
+    summary = {"generatedAt": datetime.now(timezone.utc).isoformat(), "source": {"rawDir": str(args.raw_dir), "salesDir": str(args.sales_dir)}, "salesEvidence": sales_stats, "brand": args.brand_pattern, "roleDocuments": dict(counts), "channels": dict(channels), "outcomes": dict(outcomes), "salesExemplars": examples, "privacy": {"rawFilesUnmodified": True, "piiRedacted": True, "conversationIdsHashed": True}}
     (args.output_dir / "manifest.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
