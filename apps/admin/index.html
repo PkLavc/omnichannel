@@ -307,7 +307,7 @@
           </div>
           <div class="card">
             <div class="card-head"><div><h3>Importar documento</h3><p class="muted">Formatos: XLSX, PDF, DOCX, Markdown, TXT e HTML. Limite de 25 MB.</p></div></div>
-            <div class="inline"><input id="ragFile" style="max-width:520px" type="file" accept=".xlsx,.pdf,.docx,.md,.markdown,.txt,.html,.htm"><button class="btn" data-action="upload-rag">Importar e indexar</button></div>
+            <div class="inline"><input id="ragFile" style="max-width:520px" type="file" accept=".xlsx,.pdf,.docx,.md,.markdown,.txt,.html,.htm"><select id="ragAgentRole" aria-label="Agente especialista"><option value="">Base compartilhada</option><option value="intake">Atendimento inicial</option><option value="sales">Comercial</option><option value="customer_care">SAC e pós-venda</option><option value="technical">Assistência técnica</option><option value="quality">Qualidade</option></select><button class="btn" data-action="upload-rag">Importar e indexar</button></div>
           </div>
           <div class="card">
             <div class="card-head"><div><h3>Fontes indexadas</h3><p class="muted">Exclusão remove todos os chunks da fonte selecionada.</p></div><button class="btn ghost small" data-action="reload-rag">Atualizar lista</button></div>
@@ -1205,8 +1205,8 @@
   async function uploadRag(){
     var file=el('ragFile').files[0];
     if(!file){showNotice('Selecione um arquivo.',true);return}
-    var form=new FormData();form.append('file',file);
-    try{var result=await request('/admin/rag/import',{method:'POST',body:form});showNotice(String(result.imported||0)+' chunk(s) indexado(s).');el('ragFile').value='';await reloadRag()}
+    var form=new FormData();form.append('file',file);var role=el('ragAgentRole')?.value||'';
+    try{var result=await request('/admin/rag/import'+(role?'?agentRole='+encodeURIComponent(role):''),{method:'POST',body:form});showNotice(String(result.imported||0)+' chunk(s) indexado(s).');el('ragFile').value='';await reloadRag()}
     catch(error){showNotice(error.message,true)}
   }
   async function reloadRag(){var result=await optionalRequest('/admin/rag/documents',{documents:[]});state.documents=Array.isArray(result)?result:(result.documents||[]);renderDocuments();renderOverview()}

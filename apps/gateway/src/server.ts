@@ -1057,6 +1057,7 @@ async function processMessage(
         Number(process.env.RAG_MIN_SCORE ?? 0.25),
         embeddingOptionsFromSettings(settings),
         ragTrace,
+        agentRoute.role,
       );
       ragSources = documents.map(document => ({ title: document.title, score: document.score }));
       groundingEvidence.push(...documents.map(document => ({ source: "rag" as const, content: document.content })));
@@ -2766,10 +2767,14 @@ app.post("/admin/rag/import", async (request, reply) => {
     await writeFile(temporaryPath, await file.toBuffer());
     const currentTenant = await tenant("tenant:write", request);
     const embeddingOptions = embeddingOptionsFromSettings(currentTenant.settings);
+    const requestedRole = String((request.query as Record<string, unknown> | undefined)?.agentRole ?? "").trim();
+    const agentRole = ["intake", "sales", "customer_care", "technical", "quality"].includes(requestedRole)
+      ? requestedRole
+      : undefined;
     if (extension === ".xlsx") {
       return { imported: await importQuickReplies(prisma, currentTenant.id, temporaryPath, undefined, embeddingOptions, file.filename) };
     }
-    const documents = await importFile(prisma, currentTenant.id, temporaryPath, file.filename, embeddingOptions);
+    const documents = await importFile(prisma, currentTenant.id, temporaryPath, file.filename, embeddingOptions, agentRole ? { agentRole } : {});
     return { imported: documents.length };
   } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : "import_failed" }); }
   finally { await unlink(temporaryPath).catch(() => undefined); }

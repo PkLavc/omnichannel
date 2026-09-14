@@ -296,6 +296,7 @@ export async function importFile(
   file: string,
   originalFilename = basename(file),
   embeddingOptions: EmbeddingOptions = {},
+  metadata: Record<string, unknown> = {},
 ) {
   const absolutePath = resolve(file);
   const fileStat = await stat(absolutePath);
@@ -313,6 +314,7 @@ export async function importFile(
         title: safeFilename,
         content,
         metadata: {
+          ...metadata,
           filename: safeFilename,
           extension,
           sizeBytes: fileStat.size,

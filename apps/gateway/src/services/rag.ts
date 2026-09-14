@@ -19,6 +19,8 @@ export type RagRetrievalTrace = {
   corpusVersion?: string;
 };
 
+export type RagAgentRole = "intake" | "sales" | "customer_care" | "technical" | "quality";
+
 type RawRetrievedDocument = Omit<RetrievedDocument, "score"> & {
   score: number | string;
 };
@@ -83,6 +85,7 @@ export async function retrieve(
   minimumScore = Number(process.env.RAG_MIN_SCORE ?? 0.25),
   embeddingOptions: EmbeddingOptions = {},
   trace?: RagRetrievalTrace,
+  agentRole?: RagAgentRole,
 ): Promise<RetrievedDocument[]> {
   if (trace) {
     trace.cacheHit = false;
@@ -105,7 +108,9 @@ export async function retrieve(
   const vector = vectorLiteral(queryEmbedding);
   const corpusVersion = await readCorpusVersion(prisma, cleanTenantId, embeddingOptions);
   if (trace && corpusVersion) trace.corpusVersion = corpusVersion;
-  if (corpusVersion) {
+  // Role-scoped corpora must never reuse a cache entry created for another
+  // specialist. Shared documents remain eligible for every role below.
+  if (corpusVersion && !agentRole) {
     const cached = await readSemanticRagCache(prisma, {
       tenantId: cleanTenantId,
       corpusVersion,
@@ -130,6 +135,7 @@ export async function retrieve(
         1 - (embedding <=> ${vector}::vector) AS score
       FROM "KnowledgeDocument"
       WHERE "tenantId" = ${cleanTenantId}
+        ${agentRole ? Prisma.sql`AND (metadata->>'agentRole' IS NULL OR metadata->>'agentRole' = ${agentRole})` : Prisma.empty}
         AND embedding IS NOT NULL
         AND 1 - (embedding <=> ${vector}::vector) >= ${safeMinimumScore}
       ORDER BY embedding <=> ${vector}::vector, title, content
@@ -162,6 +168,7 @@ export async function retrieve(
           SELECT title, content, 0::double precision AS score
           FROM "KnowledgeDocument"
           WHERE "tenantId" = ${cleanTenantId}
+            ${agentRole ? Prisma.sql`AND (metadata->>'agentRole' IS NULL OR metadata->>'agentRole' = ${agentRole})` : Prisma.empty}
             AND (${Prisma.join(clauses, " OR ")})
           ORDER BY
             CASE WHEN (${Prisma.join(titleClauses, " OR ")}) THEN 0 ELSE 1 END,
@@ -187,7 +194,7 @@ export async function retrieve(
       }
     }
   }
-  if (corpusVersion) {
+  if (corpusVersion && !agentRole) {
     await writeSemanticRagCache(prisma, {
       tenantId: cleanTenantId,
       corpusVersion,
