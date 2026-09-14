@@ -676,10 +676,19 @@ function decodeToolAuth(value: string | null): ToolAuth | undefined {
 }
 
 function nexusAssistantEndpoint(tenantSlug: string) {
-  const base = String(process.env.NEXUS_ASSISTANT_BASE_URL ?? "https://nexussync.pages.dev").replace(/\/+$/u, "");
-  if (tenantSlug === "icaiu") return `${base}/api/parceiros/assistente`;
-  if (tenantSlug === "loja-do-sapo") return `${base}/api/loja-do-sapo/assistente`;
-  return undefined;
+  // Tool endpoints are deployment configuration, not public source code. This
+  // lets the same public build serve independent businesses without exposing
+  // their integration routes or names in Git.
+  try {
+    const endpoints = JSON.parse(String(process.env.NEXUS_ASSISTANT_ENDPOINTS ?? "{}")) as Record<string, unknown>;
+    const endpoint = endpoints[tenantSlug];
+    if (typeof endpoint !== "string" || !endpoint.trim()) return undefined;
+    const parsed = new URL(endpoint);
+    return parsed.protocol === "https:" ? parsed.toString() : undefined;
+  } catch {
+    app.log.warn("NEXUS_ASSISTANT_ENDPOINTS is not valid JSON; built-in Nexus tools are disabled");
+    return undefined;
+  }
 }
 
 function nexusAssistantToken(tenantSlug: string) {
@@ -976,8 +985,12 @@ async function processMessage(
     return { duplicate: false, suppressed: true, content: null };
   }
 
-  const previousState = { ...contactState, ...(conversation.state as ConversationState) };
+  // `telefoneCanal` originates only from a validated Chatwoot webhook. Keep it
+  // separate from `telefone`, which may have been typed by anyone in the chat.
+  // A typed telephone is valid intake data, but never proof for a private lookup.
+  const previousState = { ...(conversation.state as ConversationState), ...contactState };
   const state = extractConversationState(operationalInput, previousState);
+  if (contactState.telefoneCanal) state.telefoneCanal = contactState.telefoneCanal;
   const agentRoute = routeSpecializedAgent({
     message: operationalInput,
     previousRole: previousState.activeAgent as Parameters<typeof routeSpecializedAgent>[0]["previousRole"],
@@ -1054,7 +1067,10 @@ async function processMessage(
       const httpTools = await configuredHttpTools(currentTenant);
       const toolContext = { tenantId: currentTenant.id, conversationExternalId, state };
       if (!scriptedAnswer) usedTools = await runConfiguredTools(operationalInput, httpTools, toolContext);
-      const customerTool = messageCount === 1 && state.telefone
+      // Customer/OS data can only be read with a channel number supplied by
+      // Chatwoot or a CPF explicitly supplied by the customer. A number parsed
+      // from message text alone is deliberately not accepted as authorization.
+      const customerTool = messageCount === 1 && (state.telefoneCanal || state.cpf)
         ? httpTools.find(tool => tool.name === "consultarCliente")
         : undefined;
       if (customerTool && !usedTools.some(result => result.name === customerTool.name)) {
@@ -1703,7 +1719,7 @@ async function handleChatwootWebhook(
   const sender = body.sender ?? body.conversation.meta?.sender;
   const contactState: ConversationState = {
     ...(sender?.name?.trim() ? { nome: sender.name.trim() } : {}),
-    ...(sender?.phone_number?.trim() ? { telefone: sender.phone_number.replace(/\D/g, "") } : {}),
+    ...(sender?.phone_number?.trim() ? { telefoneCanal: sender.phone_number.replace(/\D/g, "") } : {}),
     ...(sender?.email?.trim() ? { email: sender.email.trim().toLocaleLowerCase("pt-BR") } : {}),
   };
   void enqueue(

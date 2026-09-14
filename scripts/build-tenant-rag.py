@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a privacy-safe, sales-grounded iCaiu RAG corpus from Hablla JSON and XLSX.
+"""Build a privacy-safe, sales-grounded tenant RAG corpus from JSON and XLSX.
 
 The raw export is never modified. Outputs live under omnichannel-data and contain
 hashed conversation IDs, redacted text, channel and specialist metadata only.
@@ -116,17 +116,17 @@ def field(row: dict[str, str], *names: str) -> str:
             return row[name.casefold()].strip()
     return ""
 
-def successful_identifiers(sales_dir: Path, brand_pattern: str) -> tuple[set[str], set[str], dict[str, int]]:
+def successful_identifiers(sales_dir: Path, sales_profile: str) -> tuple[set[str], set[str], dict[str, int]]:
     phones: set[str] = set(); documents: set[str] = set(); stats = Counter()
     workbooks = sorted(sales_dir.glob("*.xlsx"), key=lambda item: item.stat().st_mtime, reverse=True)
     # The current workbook already contains the consolidated ERP/Faturamento
     # sheets; the larger backup is retained as an audit source, not parsed twice.
     for workbook in workbooks[:1]:
-        target_sheets = {"ERP", "Faturamento"} if brand_pattern == "icaiu" else {"Base_de_Ordens_de_Servico"}
+        target_sheets = {"ERP", "Faturamento"} if sales_profile == "retail-sales" else {"Base_de_Ordens_de_Servico"}
         for row in xlsx_rows(workbook, target_sheets):
             status = field(row, "status venda", "venda.status do sistema", "status do agendamento", "status global", "status faturamento", "status")
             successful = ("fatur" in status.casefold() or "realizou" in status.casefold() or "realizado" in status.casefold())
-            if brand_pattern != "icaiu":
+            if sales_profile != "retail-sales":
                 successful = any(token in status.casefold() for token in ("conclu", "finaliz", "entreg", "retirad", "realiz", "fatur"))
             if not successful:
                 continue
@@ -163,9 +163,10 @@ def main() -> int:
     parser.add_argument("--sales-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-exemplars", type=int, default=12000)
-    parser.add_argument("--brand-pattern", default="icaiu")
+    parser.add_argument("--connection-pattern", required=True, help="Identificador privado do canal a ser processado.")
+    parser.add_argument("--sales-profile", choices=("retail-sales", "service-orders"), required=True)
     args = parser.parse_args()
-    phones, documents, sales_stats = successful_identifiers(args.sales_dir, args.brand_pattern)
+    phones, documents, sales_stats = successful_identifiers(args.sales_dir, args.sales_profile)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     role_dir = args.output_dir / "role-corpus"; role_dir.mkdir(exist_ok=True)
     handles = {role: (role_dir / f"{role}.jsonl").open("w", encoding="utf-8") for role in (*ROLES, "quality")}
@@ -181,7 +182,7 @@ def main() -> int:
             try: record = json.loads(raw_bytes.decode("utf-8"))
             except Exception: counts["invalid_json"] += 1; continue
             connection = str(((record.get("service") or {}).get("connection") or {}).get("name") or "")
-            if args.brand_pattern.casefold() not in connection.casefold(): continue
+            if args.connection_pattern.casefold() not in connection.casefold(): continue
             messages = messages_from(record)
             if not messages: counts["without_messages"] += 1; continue
             service = record.get("service") or {}; person = service.get("person") or {}
@@ -202,7 +203,7 @@ def main() -> int:
     finally:
         for handle in handles.values(): handle.close()
         best_sales.close()
-    summary = {"generatedAt": datetime.now(timezone.utc).isoformat(), "source": {"rawDir": str(args.raw_dir), "salesDir": str(args.sales_dir)}, "salesEvidence": sales_stats, "brand": args.brand_pattern, "roleDocuments": dict(counts), "channels": dict(channels), "outcomes": dict(outcomes), "salesExemplars": examples, "privacy": {"rawFilesUnmodified": True, "piiRedacted": True, "conversationIdsHashed": True}}
+    summary = {"generatedAt": datetime.now(timezone.utc).isoformat(), "source": {"rawDir": str(args.raw_dir), "salesDir": str(args.sales_dir)}, "salesEvidence": sales_stats, "salesProfile": args.sales_profile, "roleDocuments": dict(counts), "channels": dict(channels), "outcomes": dict(outcomes), "salesExemplars": examples, "privacy": {"rawFilesUnmodified": True, "piiRedacted": True, "conversationIdsHashed": True}}
     (args.output_dir / "manifest.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
