@@ -60,12 +60,21 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "consultarOS",
     description: "Consulta uma ordem de serviço existente.",
-    patterns: [/\bordem\s+de\s+servi[cç]o\b/i, /(?:^|\s)os\s*(?:n[º°o.]|#|\d)/i],
+    patterns: [
+      /\bordem\s+de\s+servi[cç]o\b/i,
+      /(?:^|\s)os\s*(?:n[º°o.]|#|\d)/i,
+      /\b(?:status|andamento|situa[cç][aã]o)\b.{0,45}\b(?:servi[cç]o|reparo|conserto|manuten[cç][aã]o|aparelho)\b/i,
+      /\b(?:meu|minha)\s+(?:reparo|conserto|manuten[cç][aã]o)\b/i,
+    ],
   },
   {
     name: "consultarCliente",
     description: "Consulta cadastro e histórico autorizado de cliente.",
-    patterns: [/\b(?:meu|o)\s+cadastro\b/i, /\bconsult(?:ar|e)\b.{0,20}\bcliente\b/i],
+    patterns: [
+      /\b(?:meu|o)\s+cadastro\b/i,
+      /\bconsult(?:ar|e)\b.{0,20}\bcliente\b/i,
+      /\b(?:meus?|tenho)\s+(?:agendamentos?|atendimentos?)\b/i,
+    ],
   },
   {
     name: "agendamento",

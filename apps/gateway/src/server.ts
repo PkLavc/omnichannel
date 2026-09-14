@@ -675,9 +675,36 @@ function decodeToolAuth(value: string | null): ToolAuth | undefined {
   return parsed.data;
 }
 
-async function configuredHttpTools(tenantId: string) {
-  const rows = await prisma.toolConfig.findMany({ where: { tenantId, enabled: true }, orderBy: { name: "asc" } });
-  return rows.flatMap((row) => {
+function nexusAssistantEndpoint(tenantSlug: string) {
+  const base = String(process.env.NEXUS_ASSISTANT_BASE_URL ?? "https://nexussync.pages.dev").replace(/\/+$/u, "");
+  if (tenantSlug === "icaiu") return `${base}/api/parceiros/assistente`;
+  if (tenantSlug === "loja-do-sapo") return `${base}/api/loja-do-sapo/assistente`;
+  return undefined;
+}
+
+function nexusAssistantToken(tenantSlug: string) {
+  const secret = String(process.env.COMMERCIAL_EVENTS_TOKEN ?? "").trim();
+  if (!secret) return undefined;
+  return createHmac("sha256", secret).update(`nexus-assistant:${tenantSlug}`).digest("base64url");
+}
+
+function builtinNexusTools(currentTenant: TenantRow, configuredNames: ReadonlySet<string>) {
+  const endpoint = nexusAssistantEndpoint(currentTenant.slug);
+  const token = nexusAssistantToken(currentTenant.slug);
+  if (!endpoint || !token) return [];
+  return ["consultarCliente", "consultarOS", "agendamento"]
+    .filter(name => !configuredNames.has(name))
+    .map(name => createHttpToolAdapter({
+      name,
+      endpoint,
+      timeoutMs: 8_000,
+      auth: { type: "bearer", token },
+    }));
+}
+
+async function configuredHttpTools(currentTenant: TenantRow) {
+  const rows = await prisma.toolConfig.findMany({ where: { tenantId: currentTenant.id, enabled: true }, orderBy: { name: "asc" } });
+  const configured = rows.flatMap((row) => {
     if (!row.endpoint) return [];
     try {
       return [createHttpToolAdapter({
@@ -691,6 +718,7 @@ async function configuredHttpTools(tenantId: string) {
       return [];
     }
   });
+  return [...configured, ...builtinNexusTools(currentTenant, new Set(configured.map(tool => tool.name)))];
 }
 
 async function saveTenantSettings(currentTenant: Awaited<ReturnType<typeof tenant>>, value: z.infer<typeof settingsSchema>) {
@@ -1023,7 +1051,7 @@ async function processMessage(
   let usedTools: Awaited<ReturnType<typeof runConfiguredTools>> = [];
   try {
     {
-      const httpTools = await configuredHttpTools(currentTenant.id);
+      const httpTools = await configuredHttpTools(currentTenant);
       const toolContext = { tenantId: currentTenant.id, conversationExternalId, state };
       if (!scriptedAnswer) usedTools = await runConfiguredTools(operationalInput, httpTools, toolContext);
       const customerTool = messageCount === 1 && state.telefone
