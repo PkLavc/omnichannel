@@ -36,6 +36,7 @@ import {
 } from "./services/business-flow.js";
 import { ChatwootClient, type ChatwootAssignment, type ChatwootConfig } from "./services/chatwoot.js";
 import { importFile, importQuickReplies } from "./services/importer.js";
+import { runDueCatalogSyncs, synchronizeCatalog } from "./services/catalog-sync.js";
 import { deterministicSummary, extractConversationState, type ConversationState } from "./services/memory.js";
 import { proactiveIntakeAnswer } from "./services/intake.js";
 import { LearningCandidateService } from "./services/learning-candidates.js";
@@ -184,6 +185,14 @@ const toolSchema = z.object({
   enabled: z.boolean(),
   endpoint: z.string().url().nullable().optional(),
   timeoutMs: z.number().int().min(100).max(300_000).default(10_000),
+  auth: toolAuthSchema.nullable().optional(),
+});
+const catalogSyncSchema = z.object({
+  enabled: z.boolean().default(false),
+  intervalMinutes: z.number().int().min(15).max(10_080).default(240),
+  sourceUrl: z.string().url().max(1_500).optional(),
+  itemsPath: z.string().regex(/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/).max(180).default("items"),
+  timeoutMs: z.number().int().min(1_000).max(60_000).default(20_000),
   auth: toolAuthSchema.nullable().optional(),
 });
 const setupSchema = settingsSchema.extend({
@@ -2142,6 +2151,63 @@ app.post("/admin/tools/:name/test", async (request, reply) => {
   if (!row.endpoint) return reply.code(400).send({ healthy: false, error: "endpoint_required" });
   const result = await testHttpTool({ name, endpoint: row.endpoint, timeoutMs: row.timeoutMs, auth: decodeToolAuth(row.encryptedAuth) });
   return result.healthy ? result : reply.code(503).send(result);
+});
+
+app.get("/admin/catalog-sync", async (request) => {
+  const currentTenant = await tenant("tenant:read", request);
+  const config = await prisma.catalogSyncConfig.findUnique({ where: { tenantId: currentTenant.id } });
+  if (!config) return { configured: false, enabled: false, intervalMinutes: 240, itemsPath: "items", timeoutMs: 20_000, hasAuth: false };
+  const { encryptedAuth, sourceUrl, ...safe } = config;
+  return { configured: Boolean(sourceUrl), ...safe, hasAuth: Boolean(encryptedAuth) };
+});
+
+app.put("/admin/catalog-sync", async (request, reply) => {
+  const parsed = catalogSyncSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+  if (parsed.data.enabled && !parsed.data.sourceUrl) return reply.code(400).send({ error: "source_url_required" });
+  const currentTenant = await tenant("tenant:write", request);
+  const existing = await prisma.catalogSyncConfig.findUnique({ where: { tenantId: currentTenant.id } });
+  const submittedAuth = parsed.data.auth;
+  const config = await prisma.catalogSyncConfig.upsert({
+    where: { tenantId: currentTenant.id },
+    update: {
+      enabled: parsed.data.enabled,
+      intervalMinutes: parsed.data.intervalMinutes,
+      sourceUrl: parsed.data.sourceUrl,
+      itemsPath: parsed.data.itemsPath,
+      timeoutMs: parsed.data.timeoutMs,
+      encryptedAuth: submittedAuth === undefined ? existing?.encryptedAuth : submittedAuth === null || submittedAuth.type === "none" ? null : encrypt(JSON.stringify(submittedAuth)),
+    },
+    create: {
+      tenantId: currentTenant.id,
+      enabled: parsed.data.enabled,
+      intervalMinutes: parsed.data.intervalMinutes,
+      sourceUrl: parsed.data.sourceUrl,
+      itemsPath: parsed.data.itemsPath,
+      timeoutMs: parsed.data.timeoutMs,
+      encryptedAuth: submittedAuth && submittedAuth.type !== "none" ? encrypt(JSON.stringify(submittedAuth)) : null,
+    },
+  });
+  const { encryptedAuth, ...safe } = config;
+  return { configured: Boolean(config.sourceUrl), ...safe, hasAuth: Boolean(encryptedAuth) };
+});
+
+app.post("/admin/catalog-sync/run", async (request, reply) => {
+  const currentTenant = await tenant("tenant:write", request);
+  const config = await prisma.catalogSyncConfig.findUnique({ where: { tenantId: currentTenant.id } });
+  if (!config?.sourceUrl) return reply.code(400).send({ error: "catalog_source_not_configured" });
+  const outcome = await synchronizeCatalog(prisma, config, decodeToolAuth(config.encryptedAuth), embeddingOptionsFromSettings(currentTenant.settings));
+  return outcome.ok ? outcome : reply.code(502).send(outcome);
+});
+
+app.post("/internal/catalog-sync/run-due", async (request, reply) => {
+  const expected = String(process.env.CATALOG_SYNC_TRIGGER_TOKEN ?? "");
+  const supplied = String(request.headers.authorization ?? "").replace(/^Bearer\s+/iu, "");
+  if (!expected || expected.length < 24 || supplied.length !== expected.length || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
+    return reply.code(401).send({ error: "unauthorized" });
+  }
+  const result = await runDueCatalogSyncs(prisma, decodeToolAuth, embeddingOptionsFromSettings);
+  return result;
 });
 app.get("/admin/logs", async (request) => {
   const limit = z.coerce.number().int().min(1).max(500).catch(100).parse((request.query as { limit?: string }).limit);

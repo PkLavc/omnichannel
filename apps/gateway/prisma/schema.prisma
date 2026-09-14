@@ -134,6 +134,7 @@ model Tenant {
   adminUsers           AdminUserTenant[]
   documents            KnowledgeDocument[]
   toolConfigs          ToolConfig[]
+  catalogSyncConfig    CatalogSyncConfig?
   conversations        Conversation[]
   logs                 AiLog[]
   commercialOutcomes   CommercialOutcome[]
@@ -247,6 +248,26 @@ model ToolConfig {
 
   @@unique([tenantId, name])
   @@index([tenantId, enabled])
+}
+
+/// Per-tenant catalog cache configuration. Source credentials are encrypted and
+/// never returned by the administrative API or sent to the scheduler.
+model CatalogSyncConfig {
+  id            String   @id @default(cuid())
+  tenantId      String   @unique
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enabled       Boolean  @default(false)
+  intervalMinutes Int    @default(240)
+  sourceUrl     String?
+  itemsPath     String   @default("items")
+  timeoutMs     Int      @default(20000)
+  encryptedAuth String?
+  lastRunAt     DateTime?
+  lastSuccessAt DateTime?
+  lastError     String?
+  updatedAt     DateTime @updatedAt
+
+  @@index([enabled, lastRunAt])
 }
 
 model LocationCache {

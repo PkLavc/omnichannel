@@ -1,0 +1,34 @@
+name: Atualizar catálogo privado
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-due-jobs:
+    # The workflow never receives source API credentials or catalog content.
+    # Repository secrets are masked by GitHub and are not echoed by this job.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Disparar somente sincronizações vencidas
+        env:
+          GATEWAY_URL: ${{ secrets.CATALOG_SYNC_GATEWAY_URL }}
+          TRIGGER_TOKEN: ${{ secrets.CATALOG_SYNC_TRIGGER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GATEWAY_URL}" ] || [ -z "${TRIGGER_TOKEN}" ]; then
+            echo 'Agendador não configurado neste repositório.'
+            exit 0
+          fi
+          curl --fail --silent --show-error --retry 2 --retry-all-errors \
+            --connect-timeout 10 --max-time 90 \
+            --request POST "${GATEWAY_URL%/}/internal/catalog-sync/run-due" \
+            --header "Authorization: Bearer ${TRIGGER_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data '{}' --output /tmp/catalog-sync-result.json
+          jq '{due, succeeded, failed}' /tmp/catalog-sync-result.json
