@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { access, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -676,17 +677,17 @@ function decodeToolAuth(value: string | null): ToolAuth | undefined {
 }
 
 function nexusAssistantEndpoint(tenantSlug: string) {
-  // Tool endpoints are deployment configuration, not public source code. This
-  // lets the same public build serve independent businesses without exposing
-  // their integration routes or names in Git.
+  // Tool endpoints are tenant-private data, kept in omnichannel-data (and its
+  // encrypted backup), not in public source or deployment environment files.
   try {
-    const endpoints = JSON.parse(String(process.env.NEXUS_ASSISTANT_ENDPOINTS ?? "{}")) as Record<string, unknown>;
+    const path = String(process.env.NEXUS_ASSISTANT_ENDPOINTS_PATH ?? "/private-data/config/assistant-endpoints.json").trim();
+    const endpoints = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
     const endpoint = endpoints[tenantSlug];
     if (typeof endpoint !== "string" || !endpoint.trim()) return undefined;
     const parsed = new URL(endpoint);
     return parsed.protocol === "https:" ? parsed.toString() : undefined;
   } catch {
-    app.log.warn("NEXUS_ASSISTANT_ENDPOINTS is not valid JSON; built-in Nexus tools are disabled");
+    app.log.warn("Private assistant endpoint map is unavailable; built-in Nexus tools are disabled");
     return undefined;
   }
 }
