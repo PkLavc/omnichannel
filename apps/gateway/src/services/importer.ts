@@ -287,7 +287,7 @@ async function persistChunkedSources(
       );
     }
     return documents;
-  });
+  }, { timeout: 120_000 });
 }
 
 export async function importFile(

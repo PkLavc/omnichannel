@@ -8,12 +8,13 @@ def main():
     parser.add_argument("--input-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--examples-per-role", type=int, default=1000)
+    parser.add_argument("--prefix", default="icaiu")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     labels = {"sales": "Comercial", "technical": "Assistência técnica", "customer_care": "SAC e pós-venda", "intake": "Atendimento inicial", "quality": "Qualidade"}
     for source in sorted(args.input_dir.glob("role-corpus/*.jsonl")):
         role = source.stem
-        target = args.output_dir / f"icaiu-{role}.md"
+        target = args.output_dir / f"{args.prefix}-{role}.md"
         rows = []
         with source.open(encoding="utf-8") as handle:
             for line in handle:
