@@ -6,8 +6,11 @@ Company identity, Chatwoot credentials, RAG documents, business rules, conversat
 
 Release validation:
 
-- `npm test`: 140 tests executed, 137 passed and 3 database integration tests skipped by their existing opt-in condition; zero failures.
+- `npm test`: 145 tests executed, 142 passed and 3 database integration tests skipped by their existing opt-in condition; zero failures.
 - `npm run build`: TypeScript build completed successfully.
+- Out-of-scope repair requests are answered locally without provider tokens or external referrals.
+- Nearest-store requests use tenant-private official locations and geocoding; a live Chatwoot validation returned the official nearest unit and address without model completion.
+- Appointment availability uses the configured HTTP Tool and was validated against the live scheduling source. Exact unavailable times are rejected instead of fabricated, while creation validates the slot again before writing and is idempotent per conversation.
 - `docker compose config --quiet`: configuration accepted.
 - A disposable PostgreSQL/pgvector database received all 13 migrations. The real Gateway then started against it and reported `activeTenants: 0`.
 - The clean Admin API returned zero tenants and four disabled provider templates, with zero configured keys.
