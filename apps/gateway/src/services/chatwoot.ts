@@ -47,7 +47,8 @@ export type ChatwootCustomAttributeDefinition = {
   key: string;
   name: string;
   description: string;
-  displayType?: 0 | 1 | 4 | 5;
+  displayType?: 0 | 1 | 4 | 5 | 6;
+  values?: readonly string[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -150,31 +151,59 @@ export class ChatwootClient {
 
   async ensureConversationCustomAttributes(
     definitions: readonly ChatwootCustomAttributeDefinition[],
-  ): Promise<{ created: string[]; existing: string[] }> {
+  ): Promise<{ created: string[]; existing: string[]; updated: string[] }> {
     const path = `/api/v1/accounts/${encodeURIComponent(this.config.accountId)}/custom_attribute_definitions`;
     const raw = await this.request("GET", `${path}?attribute_model=0`);
     const rows = Array.isArray(raw) ? raw : [];
-    const existingKeys = new Set(rows.flatMap((row) =>
-      isRecord(row) && typeof row.attribute_key === "string" ? [row.attribute_key] : [],
+    const existingByKey = new Map(rows.flatMap((row) =>
+      isRecord(row) && typeof row.attribute_key === "string" ? [[row.attribute_key, row] as const] : [],
     ));
     const created: string[] = [];
     const existing: string[] = [];
+    const updated: string[] = [];
     for (const definition of definitions) {
-      if (existingKeys.has(definition.key)) {
+      const current = existingByKey.get(definition.key);
+      const desiredValues = [...(definition.values ?? [])];
+      const currentValues = Array.isArray(current?.attribute_values)
+        ? current.attribute_values.filter((value): value is string => typeof value === "string")
+        : [];
+      const desiredDisplayType = definition.displayType ?? 0;
+      const currentDisplayType = typeof current?.attribute_display_type === "number"
+        ? current.attribute_display_type
+        : ({ text: 0, number: 1, link: 4, date: 5, list: 6 } as Record<string, number>)[
+          typeof current?.attribute_display_type === "string" ? current.attribute_display_type : ""
+        ];
+      const needsUpdate = current
+        && typeof current.id === "number"
+        && (currentDisplayType !== desiredDisplayType
+          || JSON.stringify(currentValues) !== JSON.stringify(desiredValues));
+      if (needsUpdate) {
+        await this.request("PATCH", `${path}/${encodeURIComponent(String(current.id))}`, {
+          attribute_display_name: definition.name,
+          attribute_display_type: desiredDisplayType,
+          attribute_description: definition.description,
+          attribute_key: definition.key,
+          attribute_values: desiredValues,
+          attribute_model: 0,
+        });
+        updated.push(definition.key);
+        continue;
+      }
+      if (current) {
         existing.push(definition.key);
         continue;
       }
       await this.request("POST", path, {
         attribute_display_name: definition.name,
-        attribute_display_type: definition.displayType ?? 0,
+        attribute_display_type: desiredDisplayType,
         attribute_description: definition.description,
         attribute_key: definition.key,
-        attribute_values: [],
+        attribute_values: desiredValues,
         attribute_model: 0,
       });
       created.push(definition.key);
     }
-    return { created, existing };
+    return { created, existing, updated };
   }
 
   async transferToHuman(conversationId: string, override?: ChatwootAssignment): Promise<unknown> {

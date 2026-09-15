@@ -112,6 +112,31 @@ test("valida todos os canais vinculados à mesma empresa", async () => {
   ]);
 });
 
+test("atualiza um atributo de lista existente quando a taxonomia mudar", async () => {
+  requests = [];
+  responseStatuses = [];
+  responseBodies = [[{
+    id: 44,
+    attribute_key: "atendimento_resultado",
+    attribute_display_type: 0,
+    attribute_values: [],
+  }], { id: 44 }];
+  const client = new ChatwootClient({ url, accountId: "7", apiToken: "secret" });
+
+  const result = await client.ensureConversationCustomAttributes([{
+    key: "atendimento_resultado",
+    name: "Resultado",
+    description: "Resultado do fechamento.",
+    displayType: 6,
+    values: ["Venda realizada", "Sem venda"],
+  }]);
+
+  assert.deepEqual(result, { created: [], existing: [], updated: ["atendimento_resultado"] });
+  assert.equal(requests[1].method, "PATCH");
+  assert.equal(requests[1].path, "/api/v1/accounts/7/custom_attribute_definitions/44");
+  assert.deepEqual(requests[1].body.attribute_values, ["Venda realizada", "Sem venda"]);
+});
+
 test("cria o webhook quando a conta ainda não possui a integração", async () => {
   requests = [];
   responseStatuses = [];

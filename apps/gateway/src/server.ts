@@ -817,8 +817,20 @@ const serviceCardDefinitions = [
   { key: "atendimento_data_hora", name: "Data e horário", description: "Data e horário escolhidos para o atendimento." },
   { key: "atendimento_agendamento_id", name: "ID do agendamento", description: "Identificador retornado pelo Zoho Creator." },
   { key: "atendimento_status", name: "Status do atendimento", description: "Situação atual do atendimento ou agendamento." },
-  { key: "atendimento_resultado", name: "Resultado do atendimento", description: "Resultado informado pelo atendente ao encerrar: ganho, perdido, resolvido ou outro." },
-  { key: "atendimento_motivo_encerramento", name: "Motivo do encerramento", description: "Motivo padronizado informado no fechamento." },
+  {
+    key: "atendimento_resultado",
+    name: "Resultado do atendimento",
+    description: "Resultado informado pelo atendente ao encerrar.",
+    displayType: 6,
+    values: ["Venda realizada", "Sem venda", "Suporte resolvido", "Agendamento concluído", "Duplicado/Spam"],
+  },
+  {
+    key: "atendimento_motivo_encerramento",
+    name: "Motivo do encerramento",
+    description: "Motivo padronizado informado no fechamento.",
+    displayType: 6,
+    values: ["Preço", "Estoque", "Prazo", "Sem resposta", "Desistência", "Concorrente", "Fora do escopo", "Dados incompletos", "Outro"],
+  },
 ] as const;
 
 function serviceCardAttributes(conversationId: string, state: ConversationState) {
