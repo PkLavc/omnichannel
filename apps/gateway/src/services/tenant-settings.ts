@@ -72,6 +72,8 @@ export function promptSettings(settings: unknown) {
     support: typeof prompts.support === "string" ? prompts.support.trim() : "",
     postSale: typeof prompts.postSale === "string" ? prompts.postSale.trim() : "",
     welcomeMessage: typeof root.welcomeMessage === "string" ? root.welcomeMessage.trim() : "",
+    welcomePrompt: typeof root.welcomePrompt === "string" ? root.welcomePrompt.trim() : "",
+    welcomeImageFile: typeof root.welcomeImageFile === "string" ? root.welcomeImageFile.trim() : "",
     outOfHoursMessage: typeof root.outOfHoursMessage === "string" ? root.outOfHoursMessage.trim() : "",
     transferMessage: typeof root.transferMessage === "string" ? root.transferMessage.trim() : "",
   };

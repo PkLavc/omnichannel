@@ -4,19 +4,43 @@ import { after, before, test } from "node:test";
 import { ChatwootClient } from "./chatwoot.js";
 
 let url = "";
-let requests: { method?: string; path: string; token?: string; body: any }[] = [];
+let requests: { method?: string; path: string; token?: string; contentType?: string; body: any }[] = [];
 let responseStatuses: number[] = [];
 let responseBodies: unknown[] = [];
 const server = createServer((request, response) => {
   let raw = "";
   request.on("data", chunk => raw += chunk);
   request.on("end", () => {
-    requests.push({ method: request.method, path: request.url || "", token: request.headers.api_access_token as string, body: raw ? JSON.parse(raw) : undefined });
+    const contentType = request.headers["content-type"] || "";
+    requests.push({
+      method: request.method,
+      path: request.url || "",
+      token: request.headers.api_access_token as string,
+      contentType,
+      body: raw ? (contentType.includes("application/json") ? JSON.parse(raw) : raw) : undefined,
+    });
     const status = responseStatuses.shift() ?? 200;
     const responseBody = responseBodies.shift() ?? (status >= 400 ? { error: "falha simulada" } : { id: 1 });
     response.writeHead(status, { "content-type": "application/json" });
     response.end(JSON.stringify(responseBody));
   });
+});
+
+test("envia imagem como anexo multipart real", async () => {
+  requests = [];
+  responseStatuses = [];
+  responseBodies = [];
+  const client = new ChatwootClient({ url, accountId: "7", apiToken: "secret" });
+  await client.sendAttachment("42", {
+    data: new TextEncoder().encode("fake-image"),
+    filename: "boas-vindas.jpg",
+    contentType: "image/jpeg",
+  });
+  assert.equal(requests[0].path, "/api/v1/accounts/7/conversations/42/messages");
+  assert.match(requests[0].contentType || "", /^multipart\/form-data; boundary=/);
+  assert.match(requests[0].body, /name="message_type"[\s\S]*outgoing/);
+  assert.match(requests[0].body, /name="attachments\[\]"; filename="boas-vindas\.jpg"/);
+  assert.match(requests[0].body, /Content-Type: image\/jpeg/);
 });
 before(async () => { await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve)); const address = server.address(); if (!address || typeof address === "string") throw new Error("test server unavailable"); url = `http://127.0.0.1:${address.port}`; });
 after(() => server.close());

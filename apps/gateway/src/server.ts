@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { access, unlink, writeFile } from "node:fs/promises";
+import { access, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -82,7 +82,7 @@ const prisma = new PrismaClient();
 const continuousImprovement = new ContinuousImprovementService(prisma);
 const learningCandidates = new LearningCandidateService(prisma);
 const providerAccess = new ProviderAccessService(prisma);
-const app = Fastify({ logger: true, bodyLimit: 2 * 1024 * 1024 });
+const app = Fastify({ logger: true, bodyLimit: 5 * 1024 * 1024 });
 await app.register(cors, {
   origin: [
     /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/,
@@ -147,6 +147,8 @@ const settingsSchema = z.object({
   primaryColor: z.string().regex(/^#[0-9a-f]{6}$/i).nullable().optional(),
   timezone: z.string().min(1).max(100).nullable().optional(),
   welcomeMessage: z.string().max(4_000).nullable().optional(),
+  welcomePrompt: z.string().max(4_000).nullable().optional(),
+  welcomeImageFile: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/).nullable().optional(),
   outOfHoursMessage: z.string().max(4_000).nullable().optional(),
   transferMessage: z.string().max(4_000).nullable().optional(),
   language: z.string().min(2).max(35).nullable().optional(),
@@ -1285,6 +1287,13 @@ async function processMessage(
       promptSettings(settings).welcomeMessage,
     );
   let scriptedAnswer = scriptedSecurityAnswer ?? scriptedAppointmentAnswer ?? scriptedIntakeAnswer;
+  const openingIdentity = promptSettings(settings);
+  const openingSequence = scriptedIntakeAnswer === openingIdentity.welcomeMessage && Boolean(scriptedIntakeAnswer)
+    ? {
+      prompt: openingIdentity.welcomePrompt,
+      imageFile: openingIdentity.welcomeImageFile,
+    }
+    : undefined;
 
   let toolError: string | undefined;
   let usedTools: Awaited<ReturnType<typeof runConfiguredTools>> = [];
@@ -1434,6 +1443,9 @@ async function processMessage(
     `Dados já coletados: ${JSON.stringify(state)}.`,
     `Resumo anterior: ${current.summary || "nenhum"}.`,
     rules ? untrustedDataEnvelope("import", rules) : "",
+    rules
+      ? "CONDUÇÃO PROATIVA: faça uma pergunta por vez e aproveite os dados já informados. Depois de identificar a intenção, colete somente o que faltar, como aparelho/modelo, serviço ou problema e localização quando ela for necessária. Quando houver interesse em serviço presencial, ofereça consultar disponibilidade de agendamento, mas só confirme horários retornados por ferramenta ou fonte oficial. Antes de encerrar, pergunte se a pessoa deseja ajuda com mais alguma coisa. Nunca invente preço, desconto, estoque, prazo, unidade ou disponibilidade."
+      : "",
     toolContext,
     ragContext,
     transferIntent ? (openNow
@@ -1526,6 +1538,36 @@ async function processMessage(
       client = chatwoot(settings);
       await client.sendMessage(conversationExternalId, answer);
       await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "info", message: "Resposta entregue ao Chatwoot" });
+      if (openingSequence?.imageFile) {
+        try {
+          const imagePath = join(
+            process.env.PRIVATE_DATA_ROOT ?? "/private-data",
+            "tenants",
+            currentTenant.slug,
+            "assets",
+            openingSequence.imageFile,
+          );
+          await client.sendAttachment(conversationExternalId, {
+            data: await readFile(imagePath),
+            filename: openingSequence.imageFile,
+            contentType: imageContentType(openingSequence.imageFile),
+          });
+          await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "info", message: "Imagem de boas-vindas entregue ao Chatwoot" });
+        } catch (error) {
+          await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "error", message: `Falha ao entregar imagem de boas-vindas: ${error instanceof Error ? error.message : "erro desconhecido"}` });
+        }
+      }
+      if (openingSequence?.prompt) {
+        try {
+          await client.sendMessage(conversationExternalId, openingSequence.prompt);
+          await prisma.conversationMessage.create({
+            data: { conversationId: conversation.id, role: "assistant", content: openingSequence.prompt },
+          });
+          await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "info", message: "Pergunta inicial entregue ao Chatwoot" });
+        } catch (error) {
+          await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "error", message: `Falha ao entregar pergunta inicial: ${error instanceof Error ? error.message : "erro desconhecido"}` });
+        }
+      }
     } catch (error) {
       await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "error", message: `Falha de entrega ao Chatwoot: ${error instanceof Error ? error.message : "erro desconhecido"}` });
       throw error;
@@ -1542,6 +1584,19 @@ async function processMessage(
     scheduleConversationEvaluation(currentTenant.id, conversation.id, conversationExternalId);
   }
   return { duplicate: false, content: answer };
+}
+
+function imageContentType(filename: string) {
+  switch (extname(filename).toLowerCase()) {
+    case ".png": return "image/png";
+    case ".gif": return "image/gif";
+    case ".webp": return "image/webp";
+    case ".avif": return "image/avif";
+    case ".jpg":
+    case ".jpeg":
+    case ".jfif":
+    default: return "image/jpeg";
+  }
 }
 
 async function seedTenantTools(tenantId: string) {

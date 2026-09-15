@@ -138,6 +138,42 @@ export class ChatwootClient {
     );
   }
 
+  async sendAttachment(
+    conversationId: string,
+    attachment: { data: Uint8Array; filename: string; contentType: string },
+  ): Promise<unknown> {
+    let lastError: unknown;
+    const path = `/api/v1/accounts/${encodeURIComponent(this.config.accountId)}/conversations/${encodeURIComponent(conversationId)}/messages`;
+    for (let attempt = 1; attempt <= this.attempts; attempt++) {
+      try {
+        const form = new FormData();
+        form.append("message_type", "outgoing");
+        form.append("private", "false");
+        form.append(
+          "attachments[]",
+          new Blob([new Uint8Array(attachment.data)], { type: attachment.contentType }),
+          attachment.filename,
+        );
+        const response = await fetch(`${this.config.url.replace(/\/$/, "")}${path}`, {
+          method: "POST",
+          headers: { api_access_token: this.config.apiToken },
+          body: form,
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (response.ok) return response.status === 204 ? undefined : await response.json();
+        const detail = (await response.text()).slice(0, 500);
+        const retryable = response.status === 429 || response.status >= 500;
+        lastError = new ChatwootError(`Chatwoot HTTP ${response.status}: ${detail}`, response.status, retryable);
+        if (!retryable) throw lastError;
+      } catch (error) {
+        lastError = error;
+        if (error instanceof ChatwootError && !error.retryable) throw error;
+      }
+      if (attempt < this.attempts) await new Promise(resolve => setTimeout(resolve, 250 * 2 ** (attempt - 1)));
+    }
+    throw lastError instanceof Error ? lastError : new ChatwootError("Falha desconhecida no Chatwoot");
+  }
+
   async updateConversationCustomAttributes(
     conversationId: string,
     customAttributes: Record<string, string>,

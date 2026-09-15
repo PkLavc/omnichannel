@@ -192,8 +192,10 @@
             <div class="col-12 card">
               <div class="grid">
                 <div class="col-4 field"><label for="welcomeMessage">Mensagem de boas-vindas</label><textarea id="welcomeMessage"></textarea></div>
-                <div class="col-4 field"><label for="outOfHoursMessage">Mensagem fora do horário</label><textarea id="outOfHoursMessage"></textarea></div>
-                <div class="col-4 field"><label for="transferMessage">Mensagem de transferência</label><textarea id="transferMessage"></textarea></div>
+                <div class="col-4 field"><label for="welcomeImageFile">Arquivo da imagem inicial</label><input id="welcomeImageFile" placeholder="boas-vindas.jpg"><small>Pasta privada de imagens desta empresa.</small></div>
+                <div class="col-4 field"><label for="welcomePrompt">Pergunta depois da imagem</label><textarea id="welcomePrompt"></textarea></div>
+                <div class="col-6 field"><label for="outOfHoursMessage">Mensagem fora do horário</label><textarea id="outOfHoursMessage"></textarea></div>
+                <div class="col-6 field"><label for="transferMessage">Mensagem de transferência</label><textarea id="transferMessage"></textarea></div>
               </div>
             </div>
           </div>
@@ -1027,12 +1029,14 @@
     el('primaryColor').value=/^#[0-9a-f]{6}$/i.test(brand.primaryColor||'')?brand.primaryColor:'#2563eb';
     el('logoValue').value=brand.logo||'';
     el('welcomeMessage').value=brand.welcomeMessage||'';
+    el('welcomeImageFile').value=brand.welcomeImageFile||'';
+    el('welcomePrompt').value=brand.welcomePrompt||'';
     el('outOfHoursMessage').value=brand.outOfHoursMessage||'';
     el('transferMessage').value=brand.transferMessage||'';
     renderLogo(el('logoPreview'),brand.logo,false);
   }
   function identityPayload(){
-    return {companyName:el('companyName').value.trim(),botName:el('botName').value.trim(),logo:el('logoValue').value.trim()||null,primaryColor:el('primaryColor').value,language:el('language').value,welcomeMessage:el('welcomeMessage').value.trim(),outOfHoursMessage:el('outOfHoursMessage').value.trim(),transferMessage:el('transferMessage').value.trim()};
+    return {companyName:el('companyName').value.trim(),botName:el('botName').value.trim(),logo:el('logoValue').value.trim()||null,primaryColor:el('primaryColor').value,language:el('language').value,welcomeMessage:el('welcomeMessage').value.trim(),welcomeImageFile:el('welcomeImageFile').value.trim()||null,welcomePrompt:el('welcomePrompt').value.trim(),outOfHoursMessage:el('outOfHoursMessage').value.trim(),transferMessage:el('transferMessage').value.trim()};
   }
   async function saveIdentity(){
     try{await request('/admin/branding',{method:'PUT',body:JSON.stringify(identityPayload())});showNotice('Identidade salva.');await loadBranding()}
