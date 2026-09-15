@@ -210,6 +210,22 @@ const setupSchema = settingsSchema.extend({
   importQuickReplies: z.boolean().default(false),
   provider: providerSchema.optional(),
 });
+const webhookMetaSchema = z.object({
+  assignee: z.unknown().nullable().optional(),
+  sender: z.object({
+    name: z.string().nullable().optional(),
+    phone_number: z.string().nullable().optional(),
+    email: z.string().nullable().optional(),
+  }).passthrough().optional(),
+}).passthrough();
+const webhookConversationSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  inbox_id: z.union([z.string(), z.number()]).optional(),
+  status: z.string().optional(),
+  labels: z.array(z.string()).optional(),
+  custom_attributes: z.record(z.unknown()).optional(),
+  meta: webhookMetaSchema.optional(),
+}).passthrough();
 const webhookSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
   event: z.string(),
@@ -218,26 +234,17 @@ const webhookSchema = z.object({
   private: z.boolean().optional(),
   account: z.object({ id: z.union([z.string(), z.number()]) }).passthrough().optional(),
   inbox: z.object({ id: z.union([z.string(), z.number()]) }).passthrough().optional(),
+  inbox_id: z.union([z.string(), z.number()]).optional(),
+  status: z.string().optional(),
+  labels: z.array(z.string()).optional(),
+  custom_attributes: z.record(z.unknown()).optional(),
+  meta: webhookMetaSchema.optional(),
   sender: z.object({
     name: z.string().nullable().optional(),
     phone_number: z.string().nullable().optional(),
     email: z.string().nullable().optional(),
   }).passthrough().optional(),
-  conversation: z.object({
-    id: z.union([z.string(), z.number()]),
-    inbox_id: z.union([z.string(), z.number()]).optional(),
-    status: z.string().optional(),
-    labels: z.array(z.string()).optional(),
-    custom_attributes: z.record(z.unknown()).optional(),
-    meta: z.object({
-      assignee: z.unknown().nullable().optional(),
-      sender: z.object({
-        name: z.string().nullable().optional(),
-        phone_number: z.string().nullable().optional(),
-        email: z.string().nullable().optional(),
-      }).passthrough().optional(),
-    }).passthrough().optional(),
-  }).passthrough(),
+  conversation: webhookConversationSchema.optional(),
 }).passthrough();
 const improvementOutcomeSchema = z.object({
   status: z.nativeEnum(CommercialOutcomeStatus),
@@ -1878,32 +1885,44 @@ async function handleChatwootWebhook(
   const parsed = webhookSchema.safeParse(request.body);
   if (!parsed.success) return reply.code(400).send({ error: "invalid_payload", details: parsed.error.flatten() });
   const body = parsed.data;
+  // Chatwoot sends message events with `conversation` nested, but conversation
+  // status/attribute events serialize the conversation directly at the root.
+  // Normalize both official payload variants before tenant/inbox validation.
+  const payloadConversation = body.conversation ?? (body.id === undefined ? undefined : {
+    id: body.id,
+    inbox_id: body.inbox_id,
+    status: body.status,
+    labels: body.labels,
+    custom_attributes: body.custom_attributes,
+    meta: body.meta,
+  });
+  if (!payloadConversation) return reply.code(400).send({ error: "conversation_missing" });
   const expectedAccount = typeof settings.chatwootAccountId === "string" ? settings.chatwootAccountId : undefined;
   const payloadAccount = body.account?.id === undefined ? undefined : String(body.account.id);
   if (expectedAccount && !payloadAccount) return reply.code(202).send({ ignored: true, reason: "account_missing" });
   if (expectedAccount && payloadAccount !== expectedAccount) return reply.code(202).send({ ignored: true, reason: "account_mismatch" });
   const expectedInboxes = new Set(configuredChatwootInboxIds(settings));
   if (!expectedInboxes.size) return reply.code(503).send({ error: "chatwoot_inboxes_not_configured" });
-  const rawInbox = body.inbox?.id ?? body.conversation.inbox_id;
+  const rawInbox = body.inbox?.id ?? payloadConversation.inbox_id;
   const payloadInbox = rawInbox === undefined ? undefined : String(rawInbox);
   if (expectedInboxes.size && !payloadInbox) return reply.code(202).send({ ignored: true, reason: "inbox_missing" });
   if (expectedInboxes.size && payloadInbox && !expectedInboxes.has(payloadInbox)) {
     return reply.code(202).send({ ignored: true, reason: "inbox_mismatch" });
   }
-  const conversationId = String(body.conversation.id);
-  const humanAssigned = body.conversation.meta?.assignee != null;
+  const conversationId = String(payloadConversation.id);
+  const humanAssigned = payloadConversation.meta?.assignee != null;
   if (body.event === "conversation_updated" || body.event === "conversation_status_changed") {
     await synchronizeChatwootConversationState(currentTenant, conversationId, {
-      status: body.conversation.status,
+      status: payloadConversation.status,
       assigneePresent: humanAssigned,
-      labels: body.conversation.labels,
-      customAttributes: body.conversation.custom_attributes,
+      labels: payloadConversation.labels,
+      customAttributes: payloadConversation.custom_attributes,
     });
     return reply.code(202).send({ accepted: true, synchronized: true });
   }
   const incoming = body.message_type === "incoming" || body.message_type === 0;
   if (body.event !== "message_created" || !incoming || body.private || !body.content?.trim()) return reply.code(202).send({ ignored: true });
-  const sender = body.sender ?? body.conversation.meta?.sender;
+  const sender = body.sender ?? payloadConversation.meta?.sender;
   const contactState: ConversationState = {
     ...(sender?.name?.trim() ? { nome: sender.name.trim() } : {}),
     ...(sender?.phone_number?.trim() ? { telefoneCanal: sender.phone_number.replace(/\D/g, "") } : {}),
