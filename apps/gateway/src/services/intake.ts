@@ -13,6 +13,7 @@ export function proactiveIntakeAnswer(
   input: string,
   state: ConversationState,
   messageCount: number,
+  welcomeMessage = "",
 ): string | undefined {
   if (nearestStorePattern.test(input) && !knownLocation(state)) {
     return "Para indicar a loja realmente mais próxima, preciso saber onde você está. Pode me informar seu bairro, cidade, CEP ou endereço atual?";
@@ -26,7 +27,7 @@ export function proactiveIntakeAnswer(
   }
 
   if (messageCount === 1 && vagueOpeningPattern.test(input)) {
-    return "Olá! Posso ajudar com manutenção de aparelhos Apple, compra ou venda de dispositivos, acessórios, lojas e agendamentos. O que você precisa hoje?";
+    return welcomeMessage.trim() || undefined;
   }
 
   return undefined;

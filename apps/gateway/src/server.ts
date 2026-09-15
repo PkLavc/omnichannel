@@ -1278,7 +1278,12 @@ async function processMessage(
       : undefined;
   const scriptedIntakeAnswer = scriptedAppointmentAnswer
     ? undefined
-    : proactiveIntakeAnswer(operationalInput, state, messageCount);
+    : proactiveIntakeAnswer(
+      operationalInput,
+      state,
+      messageCount,
+      promptSettings(settings).welcomeMessage,
+    );
   let scriptedAnswer = scriptedSecurityAnswer ?? scriptedAppointmentAnswer ?? scriptedIntakeAnswer;
 
   let toolError: string | undefined;

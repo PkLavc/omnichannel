@@ -16,9 +16,11 @@ test("problema genérico de tela exige modelo e sintomas antes de orçamento", (
   );
 });
 
-test("abertura vaga apresenta opções de atendimento", () => {
-  assert.match(
-    proactiveIntakeAnswer("Olá", {}, 1) ?? "",
-    /manutenção.*compra ou venda.*acessórios.*lojas.*agendamentos/i,
-  );
+test("abertura vaga usa exatamente a mensagem de boas-vindas configurada", () => {
+  const welcomeMessage = "Oi! Tudo bem? 👋\nSou o Caio, assistente virtual da *iCaiu*.";
+  assert.equal(proactiveIntakeAnswer("Olá", {}, 1, welcomeMessage), welcomeMessage);
+});
+
+test("abertura vaga sem mensagem configurada segue para o provider", () => {
+  assert.equal(proactiveIntakeAnswer("Olá", {}, 1), undefined);
 });
