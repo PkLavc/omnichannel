@@ -17,10 +17,10 @@ Cada item deve fornecer ao menos um destes campos de nome: `name`, `nome`, `titl
 
 ## Configuração por empresa
 
-Com sessão administrativa e o tenant selecionado:
+No Nexus, abra **Comunicação → Configuração da IA e catálogo**, selecione a empresa e abra **Tools**. A configuração permanece isolada por empresa:
 
-1. Envie `PUT /admin/catalog-sync` com URL, caminho da lista, intervalo de 15 a 10.080 minutos e autenticação da fonte.
-2. Use `POST /admin/catalog-sync/run` para a primeira atualização manual.
-3. Cadastre os dois secrets do workflow no repositório e mantenha `CATALOG_SYNC_TRIGGER_TOKEN` igual no `platform.env` privado do Gateway.
+1. Informe URL, caminho da lista, intervalo e autenticação; a credencial é cifrada e não volta à tela.
+2. Use **Executar agora** para a primeira atualização manual.
+3. O operador da plataforma cadastra os dois secrets do workflow e mantém `CATALOG_SYNC_TRIGGER_TOKEN` igual no `platform.env` privado do Gateway.
 
-O workflow roda a cada 15 minutos, mas só atualiza empresas cujo `intervalMinutes` venceu. Para quatro atualizações diárias, use `240`.
+O workflow roda a cada quatro horas, mas só atualiza empresas cujo `intervalMinutes` venceu. Para quatro atualizações diárias, use `240`; os demais intervalos devem ser múltiplos de quatro horas. A primeira atualização pode ser disparada manualmente.

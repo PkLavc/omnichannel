@@ -85,6 +85,7 @@ export async function fetchCatalog(source: CatalogSyncSource, fetchImpl = global
   const response = await fetchImpl(endpoint, {
     headers: { accept: "application/json", ...toolAuthHeaders(source.auth) },
     signal: AbortSignal.timeout(source.timeoutMs),
+    redirect: "error",
   });
   if (!response.ok) throw new Error(`Fonte do catálogo respondeu HTTP ${response.status}`);
   const raw: unknown = await response.json();

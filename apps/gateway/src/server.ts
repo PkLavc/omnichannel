@@ -187,10 +187,20 @@ const toolSchema = z.object({
   timeoutMs: z.number().int().min(100).max(300_000).default(10_000),
   auth: toolAuthSchema.nullable().optional(),
 });
+const catalogSourceUrlSchema = z.string().url().max(1_500).superRefine((value, context) => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Use uma URL HTTPS sem credenciais, query string ou fragmento" });
+    }
+  } catch {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "URL inválida" });
+  }
+});
 const catalogSyncSchema = z.object({
   enabled: z.boolean().default(false),
-  intervalMinutes: z.number().int().min(15).max(10_080).default(240),
-  sourceUrl: z.string().url().max(1_500).optional(),
+  intervalMinutes: z.number().int().min(240).max(10_080).refine(value => value % 240 === 0, "O intervalo deve ser múltiplo de quatro horas").default(240),
+  sourceUrl: catalogSourceUrlSchema.optional(),
   itemsPath: z.string().regex(/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/).max(180).default("items"),
   timeoutMs: z.number().int().min(1_000).max(60_000).default(20_000),
   auth: toolAuthSchema.nullable().optional(),
@@ -2157,8 +2167,8 @@ app.get("/admin/catalog-sync", async (request) => {
   const currentTenant = await tenant("tenant:read", request);
   const config = await prisma.catalogSyncConfig.findUnique({ where: { tenantId: currentTenant.id } });
   if (!config) return { configured: false, enabled: false, intervalMinutes: 240, itemsPath: "items", timeoutMs: 20_000, hasAuth: false };
-  const { encryptedAuth, sourceUrl, ...safe } = config;
-  return { configured: Boolean(sourceUrl), ...safe, hasAuth: Boolean(encryptedAuth) };
+  const { encryptedAuth, ...safe } = config;
+  return { configured: Boolean(config.sourceUrl), ...safe, hasAuth: Boolean(encryptedAuth) };
 });
 
 app.put("/admin/catalog-sync", async (request, reply) => {

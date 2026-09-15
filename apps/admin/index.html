@@ -320,6 +320,19 @@
           <div class="card">
             <div class="table-wrap"><table><thead><tr><th>Tool</th><th>Ativa / endpoint</th><th>Timeout</th><th>Autenticação</th><th>Status</th><th>Ações</th></tr></thead><tbody id="toolsBody"></tbody></table></div>
           </div>
+          <div class="card">
+            <div class="card-head"><div><h3>Atualização de catálogo</h3><p class="muted">Atualiza preço e estoque no RAG em segundo plano.</p></div><div class="actions"><button class="btn ghost small" data-action="run-catalog-sync">Executar agora</button><button class="btn small" data-action="save-catalog-sync">Salvar</button></div></div>
+            <div class="grid">
+              <div class="col-8 field"><label for="catalogSourceUrl">URL HTTPS da fonte</label><input id="catalogSourceUrl" type="url" placeholder="https://api.exemplo.com/catalogo"><small>Não use token na URL.</small></div>
+              <div class="col-2 field"><label for="catalogItemsPath">Caminho dos itens</label><input id="catalogItemsPath" value="items"></div>
+              <div class="col-2 field"><label for="catalogInterval">Intervalo (horas)</label><select id="catalogInterval"><option value="240">4</option><option value="480">8</option><option value="720">12</option><option value="1440">24</option></select></div>
+              <div class="col-3 field"><label for="catalogAuthType">Autenticação</label><select id="catalogAuthType"><option value="">Manter atual / nenhuma</option><option value="none">Remover autenticação</option><option value="bearer">Bearer</option><option value="basic">Basic</option><option value="apiKey">API key em header</option></select></div>
+              <div class="col-3 field"><label for="catalogAuthUser">Usuário ou header</label><input id="catalogAuthUser" placeholder="X-API-Key"></div>
+              <div class="col-3 field"><label for="catalogAuthSecret">Segredo</label><input id="catalogAuthSecret" type="password" autocomplete="new-password" placeholder="Nunca é exibido"></div>
+              <div class="col-3 field"><label for="catalogTimeout">Timeout (ms)</label><input id="catalogTimeout" type="number" min="1000" max="60000" value="20000"></div>
+              <div class="col-12"><label class="check"><input id="catalogEnabled" type="checkbox"> Atualização automática ativa</label><p id="catalogSyncStatus" class="muted">Sem fonte configurada.</p></div>
+            </div>
+          </div>
         </section>
 
         <section id="page-operations" class="page">
@@ -525,7 +538,7 @@
   var selectedTenantId = '';
   var tenantStorageKey = 'omnichannel.selectedTenantId';
   var currentPage = 'overview';
-  var state = {me:{},tenants:[],users:[],settings:{},branding:{},providers:[],documents:[],activeRag:null,tools:[],conversations:[],logs:[],businessRules:null,health:{},setup:null,improvement:{loaded:false,metrics:{},conversations:[],datasets:[],evaluations:[],prompt:{definition:null,versions:[],releases:[],comparisons:[],currentBundle:null}}};
+  var state = {me:{},tenants:[],users:[],settings:{},branding:{},providers:[],documents:[],activeRag:null,tools:[],catalogSync:null,conversations:[],logs:[],businessRules:null,health:{},setup:null,improvement:{loaded:false,metrics:{},conversations:[],datasets:[],evaluations:[],prompt:{definition:null,versions:[],releases:[],comparisons:[],currentBundle:null}}};
   var wizardStep = 0;
   var wizardTestResult = null;
   var noticeTimer;
@@ -766,7 +779,7 @@
   async function loadAll(){
     if(!selectedTenantId){
       state.health=await publicHealth();
-      state.settings={};state.branding={};state.documents=[];state.tools=[];state.conversations=[];state.logs=[];state.businessRules=null;state.setup={completed:true,firstRun:false,infrastructure:{}};
+      state.settings={};state.branding={};state.documents=[];state.tools=[];state.catalogSync=null;state.conversations=[];state.logs=[];state.businessRules=null;state.setup={completed:true,firstRun:false,infrastructure:{}};
       if(hasCapability('manageProviders')){
         var globalProviderResults=await Promise.all([request('/admin/providers',{tenantScoped:false}),optionalRequest('/admin/providers/health',{providers:[]})]);
         state.providers=asList(globalProviderResults[0]&&globalProviderResults[0].providers!==undefined?globalProviderResults[0].providers:globalProviderResults[0]);
@@ -787,7 +800,8 @@
       request('/admin/conversations'),
       request('/admin/logs?limit='+encodeURIComponent(limit)),
       optionalRequest('/admin/setup',{completed:true,firstRun:false,infrastructure:{}}),
-      optionalRequest('/admin/business-rules',null)
+      optionalRequest('/admin/business-rules',null),
+      optionalRequest('/admin/catalog-sync',null)
     ]);
     state.health=results[0]||{};
     state.settings=results[1]||{};
@@ -800,6 +814,7 @@
     state.logs=Array.isArray(results[8])?results[8]:[];
     state.setup=results[9]||{};
     state.businessRules=results[10];
+    state.catalogSync=results[11];
     renderAll();
   }
 
@@ -815,6 +830,7 @@
     renderProviders();
     renderDocuments();
     renderTools();
+    fillCatalogSync();
     renderOperations();
     renderImprovement();
     renderOverview();
@@ -884,7 +900,7 @@
     if(globalPageCapability[currentPage]&&!hasCapability(globalPageCapability[currentPage]))switchPage('overview');
     document.querySelectorAll('[data-action]').forEach(function(button){if(isTenantMutationAction(button.dataset.action))button.disabled=!selectedTenantId||!hasCapability('tenantWrite')});
   }
-  function isTenantMutationAction(action){return ['save-identity','save-ai-settings','save-chatwoot','test-chatwoot','upload-rag','save-rag','reindex-all','reindex-rag','delete-rag','save-tool','test-tool','save-business-rules','clear-business-rules','discover-learning','approve-learning','reject-learning','save-outcome','add-commerce-link','add-feedback','evaluate-conversation','materialize-dataset','publish-dataset','create-prompt-version','approve-prompt-version','compare-prompt-versions','release-prompt','rollback-prompt','wizard-test','wizard-next'].includes(action)}
+  function isTenantMutationAction(action){return ['save-identity','save-ai-settings','save-chatwoot','test-chatwoot','upload-rag','save-rag','reindex-all','reindex-rag','delete-rag','save-tool','test-tool','save-catalog-sync','run-catalog-sync','save-business-rules','clear-business-rules','discover-learning','approve-learning','reject-learning','save-outcome','add-commerce-link','add-feedback','evaluate-conversation','materialize-dataset','publish-dataset','create-prompt-version','approve-prompt-version','compare-prompt-versions','release-prompt','rollback-prompt','wizard-test','wizard-next'].includes(action)}
   function requireCapability(name,message){if(hasCapability(name))return true;showNotice(message||'Seu usuário não possui permissão para esta ação.',true);return false}
 
   function renderTenants(){
@@ -1287,6 +1303,10 @@
     catch(error){showNotice(error.message,true)}
   }
   async function reloadTools(){var result=await optionalRequest('/admin/tools',{tools:[]});state.tools=Array.isArray(result)?result:(result.tools||[]);renderTools()}
+  function fillCatalogSync(){var c=state.catalogSync||{configured:false,enabled:false,sourceUrl:'',itemsPath:'items',intervalMinutes:240,timeoutMs:20000,hasAuth:false};if(!el('catalogSourceUrl'))return;el('catalogSourceUrl').value=c.sourceUrl||'';el('catalogItemsPath').value=c.itemsPath||'items';el('catalogInterval').value=String(c.intervalMinutes||240);el('catalogTimeout').value=c.timeoutMs||20000;el('catalogEnabled').checked=Boolean(c.enabled);el('catalogAuthType').value='';el('catalogAuthUser').value='';el('catalogAuthSecret').value='';el('catalogSyncStatus').textContent=!c.configured?'Sem fonte configurada.':(c.enabled?'Ativa a cada '+(c.intervalMinutes/60)+' hora(s). ':'Pausada. ')+(c.hasAuth?'Autenticação protegida configurada. ':'Sem autenticação.')+(c.lastSuccessAt?' Último sucesso: '+displayDate(c.lastSuccessAt)+'.':'')+(c.lastError?' Última falha: '+c.lastError:'')}
+  function catalogAuthPayload(){var type=el('catalogAuthType').value,secret=el('catalogAuthSecret').value,user=el('catalogAuthUser').value.trim();if(!type)return undefined;if(type==='none')return {type:'none'};if(!secret)throw new Error('Informe o segredo ou escolha manter a autenticação atual.');if(type==='bearer')return {type:'bearer',token:secret};if(type==='basic'){if(!user)throw new Error('Informe o usuário Basic.');return {type:'basic',username:user,password:secret}}return {type:'apiKey',headerName:user||'X-API-Key',value:secret}}
+  async function saveCatalogSync(){var payload={enabled:el('catalogEnabled').checked,sourceUrl:el('catalogSourceUrl').value.trim()||undefined,itemsPath:el('catalogItemsPath').value.trim()||'items',intervalMinutes:numberOr(el('catalogInterval').value,240),timeoutMs:numberOr(el('catalogTimeout').value,20000),auth:catalogAuthPayload()};if(payload.enabled&&!payload.sourceUrl)throw new Error('Informe a URL HTTPS para ativar o catálogo.');state.catalogSync=await request('/admin/catalog-sync',{method:'PUT',body:JSON.stringify(payload)});fillCatalogSync();showNotice('Configuração do catálogo salva.')}
+  async function runCatalogSync(){await saveCatalogSync();var outcome=await request('/admin/catalog-sync/run',{method:'POST',body:'{}'});showNotice('Catálogo atualizado: '+outcome.itemCount+' itens em '+outcome.documentCount+' documento(s).');state.catalogSync=await optionalRequest('/admin/catalog-sync',state.catalogSync);fillCatalogSync()}
 
   function renderOperations(){
     var query=(el('operationSearch').value||'').toLocaleLowerCase();
@@ -1911,6 +1931,8 @@
     if(action==='reload-tools')reloadTools();
     if(action==='save-tool'){try{await saveTool(key,false)}catch(error){showNotice(error.message,true)}}
     if(action==='test-tool')testTool(key);
+    if(action==='save-catalog-sync'){try{await saveCatalogSync()}catch(error){showNotice(error.message,true)}}
+    if(action==='run-catalog-sync'){try{await runCatalogSync()}catch(error){showNotice(error.message,true)}}
     if(action==='reload-operations')reloadOperations();
     if(action==='reload-business-rules')reloadBusinessRules(true);
     if(action==='save-business-rules')saveBusinessRules(button);
