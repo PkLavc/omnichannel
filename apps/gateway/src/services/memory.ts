@@ -34,6 +34,9 @@ export function extractConversationState(input: string, previous: ConversationSt
     input,
     /(?:servi[cç]o(?: desejado)?|preciso (?:fazer|trocar|consertar|reparar)|quero (?:fazer|trocar|consertar|reparar)|(?:quero\s+)?(?:agendar|marcar)(?:\s+um|\s+uma)?)(?:\s+(?:é|e|de|do|da|um|uma))?\s*[:\-]?\s*(.{3,100}?)(?=\s+(?:na|no|pela|para a|para o)\s+(?:loja|unidade)\b|\s+para\s+(?:meu|minha|o|a)\b|\s+em\s+\d{1,2}[/-]|[.!?]|$)/iu,
   );
+  const usableService = service && !/^(?:(?:hoje|amanh[aã])\b|(?:[01]?\d|2[0-3])(?::[0-5]\d|\s*h(?:oras?)?)\b)/iu.test(service)
+    ? service
+    : undefined;
   const desiredUnit = first(
     input,
     /(?:unidade|loja)(?: de prefer[eê]ncia| desejada| mais pr[oó]xima)?(?:\s+(?:é|e|da|de|do|em))?\s*[:\-]?\s*([\p{L}\d][\p{L}\d\s'-]{1,70}?)(?=\s+em\s+\d{1,2}[/-]|\s+(?:às|as)\s+\d{1,2}:\d{2}|[,.!?]|$)/iu,
@@ -55,7 +58,7 @@ export function extractConversationState(input: string, previous: ConversationSt
   if (time) next.horarioDesejado = time;
   if (cpf) next.cpf = cpf.replace(/\D/g, "");
   if (email) next.email = email.toLocaleLowerCase("pt-BR");
-  if (service) next.servico = service.replace(/[.!?].*$/, "").trim().replace(/^(?:a|o|um|uma)\s+/iu, "");
+  if (usableService) next.servico = usableService.replace(/[.!?].*$/, "").trim().replace(/^(?:a|o|um|uma)\s+/iu, "");
   if (desiredUnit) {
     const value = desiredUnit.replace(/[.!?].*$/, "").trim();
     if (!/^(?:mais\s+(?:perto|pr[oó]xima)(?:\s+de\s+mim)?|perto\s+de\s+mim)$/iu.test(value)) {

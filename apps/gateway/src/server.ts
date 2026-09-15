@@ -902,7 +902,7 @@ const appointmentFieldLabels: Record<string, string> = {
 function missingAppointmentFields(state: ConversationState) {
   return [
     !state.nome && "nome",
-    !state.telefone && "telefone",
+    !(state.telefone || state.telefoneCanal) && "telefone",
     !(state.modelo || state.aparelho) && "modelo",
     !(state.servico || state.defeito) && "servico",
     !(state.unidadeAgendamento || state.unidadeDesejada) && "unidade",

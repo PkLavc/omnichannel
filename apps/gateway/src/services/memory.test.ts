@@ -61,6 +61,13 @@ test("entende horário relativo e troca a localização durante busca de loja", 
   assert.equal(schedule.horarioDesejado, "11:00");
 });
 
+test("não confunde data e horário do agendamento com o serviço desejado", () => {
+  const state = extractConversationState("Quero agendar 16:15 hoje", { intencaoAgendamento: "true" });
+  assert.equal(state.horarioDesejado, "16:15");
+  assert.equal(state.dataDesejada, "hoje");
+  assert.equal(state.servico, undefined);
+});
+
 test("resumo preserva fatos estruturados", () => {
   const messages = Array.from({ length: 40 }, (_, index) => ({
     role: index % 2 ? "assistant" : "user",
