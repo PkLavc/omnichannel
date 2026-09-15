@@ -13,6 +13,8 @@ export type ChatwootAssignment = {
   assigneeId?: number;
 };
 
+type ChatwootAgent = { id?: number; availability_status?: string };
+
 export class ChatwootError extends Error {
   constructor(message: string, public readonly status?: number, public readonly retryable = false) {
     super(message);
@@ -183,6 +185,21 @@ export class ChatwootClient {
       `/api/v1/accounts/${encodeURIComponent(this.config.accountId)}/conversations/${encodeURIComponent(conversationId)}/assignments`,
       assignment,
     );
+  }
+
+  /** Checks the actual Chatwoot presence before assigning a live conversation. */
+  async hasAvailableAgent(override?: ChatwootAssignment): Promise<boolean> {
+    const target = override ?? { teamId: this.config.teamId, assigneeId: this.config.assigneeId };
+    const accountPath = `/api/v1/accounts/${encodeURIComponent(this.config.accountId)}`;
+    const raw = target.teamId
+      ? await this.request("GET", `${accountPath}/teams/${encodeURIComponent(String(target.teamId))}/team_members`)
+      : await this.request("GET", `${accountPath}/agents`);
+    const rows = Array.isArray(raw)
+      ? raw
+      : isRecord(raw) && Array.isArray(raw.payload) ? raw.payload : [];
+    const agents = rows.filter(isRecord) as ChatwootAgent[];
+    const candidates = target.assigneeId ? agents.filter(agent => agent.id === target.assigneeId) : agents;
+    return candidates.some(agent => agent.availability_status === "available");
   }
 
   /** Creates the account webhook once, or reconciles an existing entry by technical name, legacy name, or URL. */

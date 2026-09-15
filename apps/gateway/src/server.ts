@@ -32,6 +32,7 @@ import {
   detectConversationSector,
   inBusinessHours,
   transferRequested,
+  withdrawsHumanRequest,
   type ConversationSector,
 } from "./services/business-flow.js";
 import { ChatwootClient, type ChatwootAssignment, type ChatwootConfig } from "./services/chatwoot.js";
@@ -861,7 +862,7 @@ function missingAppointmentFields(state: ConversationState) {
 
 function appointmentQualificationAnswer(state: ConversationState, missing: string[]) {
   if (missing.length) {
-    return `Para encaminhar seu pedido de agendamento, preciso confirmar: ${missing
+    return `Para registrar seu pré-agendamento, preciso confirmar: ${missing
       .map(field => appointmentFieldLabels[field])
       .join(", ")}. Pode me informar esses dados?`;
   }
@@ -873,7 +874,7 @@ function appointmentQualificationAnswer(state: ConversationState, missing: strin
     (state.unidadeAgendamento || state.unidadeDesejada) && `unidade: ${state.unidadeAgendamento ?? state.unidadeDesejada}`,
     `data e horário: ${state.dataDesejada} ${state.horarioDesejado}`,
   ].filter(Boolean);
-  return `Obrigado. Anotei ${details.join("; ")}. Vou encaminhar a conversa para um atendente verificar a disponibilidade e concluir o agendamento.`;
+  return `Obrigado. Registrei seu pré-agendamento com ${details.join("; ")}. Vou continuar acompanhando por aqui; se quiser, também posso tirar dúvidas sobre o serviço antes da data.`;
 }
 
 async function updateChatwootServiceCard(
@@ -900,6 +901,50 @@ function enqueue<T>(tenantId: string, conversationId: string, task: () => Promis
 async function writeLog(data: Prisma.AiLogUncheckedCreateInput) {
   try { await prisma.aiLog.create({ data }); }
   catch (error) { app.log.error(error, "failed to persist audit log"); }
+}
+
+async function transferToAvailableHuman(input: {
+  tenantId: string;
+  conversationId: string;
+  conversationExternalId: string;
+  settings: Record<string, unknown>;
+  sector?: ConversationSector;
+}) {
+  const client = chatwoot(input.settings);
+  const assignment = chatwootSectorAssignment(input.settings, input.sector);
+  if (!await client.hasAvailableAgent(assignment)) {
+    await prisma.conversation.update({ where: { id: input.conversationId }, data: { status: "human_pending" } });
+    await writeLog({ tenantId: input.tenantId, conversationExternalId: input.conversationExternalId, level: "info", message: "Transferência mantida pendente: nenhum atendente disponível no setor" });
+    return false;
+  }
+  await client.transferToHuman(input.conversationExternalId, assignment);
+  await prisma.conversation.update({ where: { id: input.conversationId }, data: { status: "human_assigned" } });
+  await writeLog({ tenantId: input.tenantId, conversationExternalId: input.conversationExternalId, level: "info", message: "Conversa atribuída a atendente disponível" });
+  return true;
+}
+
+async function processPendingHumanTransfers() {
+  const pending = await prisma.conversation.findMany({
+    where: { status: "human_pending", tenant: { active: true } },
+    select: { id: true, tenantId: true, externalId: true, state: true, tenant: { select: { settings: true } } },
+    take: 100,
+  });
+  for (const conversation of pending) {
+    const settings = conversation.tenant.settings as Record<string, unknown>;
+    if (!inBusinessHours(settings)) continue;
+    const sector = (conversation.state as ConversationState).sector as ConversationSector | undefined;
+    try {
+      await transferToAvailableHuman({
+        tenantId: conversation.tenantId,
+        conversationId: conversation.id,
+        conversationExternalId: conversation.externalId,
+        settings,
+        sector,
+      });
+    } catch (error) {
+      await writeLog({ tenantId: conversation.tenantId, conversationExternalId: conversation.externalId, level: "error", message: `Falha ao processar transferência pendente: ${error instanceof Error ? error.message : "erro desconhecido"}` });
+    }
+  }
 }
 
 async function unambiguousConversationPromptVersion(conversationId: string) {
@@ -1017,13 +1062,23 @@ async function processMessage(
     state: previousState,
   });
   state.activeAgent = agentRoute.role;
+  const requestedHuman = transferRequested(operationalInput);
+  const withdrewHumanRequest = withdrawsHumanRequest(operationalInput);
+  const previousHumanRequests = Math.max(0, Math.min(9, Number.parseInt(previousState.humanRequestCount ?? "0", 10) || 0));
+  if (withdrewHumanRequest) {
+    delete state.humanRequestCount;
+    delete state.humanRequestPending;
+  } else if (requestedHuman) {
+    state.humanRequestCount = String(Math.min(9, previousHumanRequests + 1));
+  }
+  const humanRequestCount = withdrewHumanRequest ? 0 : (requestedHuman ? previousHumanRequests + 1 : previousHumanRequests);
   const sector = detectConversationSector(operationalInput, previousState.sector);
   if (sector) state.sector = sector;
   const appointmentIntent = previousState.intencaoAgendamento === "true" || appointmentIntentPattern.test(operationalInput);
   if (appointmentIntent) state.intencaoAgendamento = "true";
   const missingForAppointment = appointmentIntent ? missingAppointmentFields(state) : [];
   const appointmentQualified = appointmentIntent && missingForAppointment.length === 0;
-  if (appointmentQualified) state.statusAgendamento = "Aguardando atendente";
+  if (appointmentQualified) state.statusAgendamento = "Pré-agendamento concluído";
   else if (appointmentIntent) state.statusAgendamento = "Coletando dados";
   if (JSON.stringify(state) !== JSON.stringify(previousState)) {
     await prisma.conversation.update({ where: { id: conversation.id }, data: { state } });
@@ -1136,10 +1191,9 @@ async function processMessage(
       await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "error", message: error instanceof Error ? error.message : "Falha no RAG" });
     }
   }
-  const requestedHuman = transferRequested(operationalInput);
-  const transferIntent = appointmentIntent ? appointmentQualified : requestedHuman;
+  const transferIntent = requestedHuman && humanRequestCount >= 2;
   const openNow = inBusinessHours(settings);
-  const transferPending = conversation.status === "human_pending";
+  const transferPending = conversation.status === "human_pending" && !withdrewHumanRequest;
   let rules = "";
   if (settings.businessRulesEnabled === true) {
     try {
@@ -1219,8 +1273,11 @@ async function processMessage(
       : "",
     appointmentIntent
       ? appointmentQualified
-        ? "O cliente forneceu os dados mínimos do pré-agendamento. Não diga que o agendamento foi criado. Resuma os dados confirmados, informe que um atendente humano continuará para validar disponibilidade e concluir o agendamento, e não faça novas perguntas."
+        ? "O cliente forneceu os dados mínimos do pré-agendamento. Confirme que o pedido foi registrado sem afirmar que uma vaga foi reservada ou que o agendamento foi criado. Não transfira por causa do pré-agendamento; continue resolvendo dúvidas e atualizando o cartão."
         : `O cliente quer agendar, mas ainda faltam: ${missingForAppointment.map(field => appointmentFieldLabels[field]).join(", ")}. Não transfira ainda e não diga que criou ou reservou horário. Peça de forma curta somente esses dados ausentes; não pergunte novamente o que já consta em Dados já coletados.`
+      : "",
+    requestedHuman && !transferIntent
+      ? "O cliente pediu falar com uma pessoa uma vez. Continue resolvendo naturalmente e diga, sem pressionar, que você pode concluir o atendimento por aqui; só encaminhe se ele repetir que prefere uma pessoa."
       : "",
     "Responda perguntas paralelas e retome o atendimento principal. Não repita dados já presentes no estado da conversa.",
     `Dados já coletados: ${JSON.stringify(state)}.`,
@@ -1229,8 +1286,8 @@ async function processMessage(
     toolContext,
     ragContext,
     transferIntent ? (openNow
-      ? `O cliente solicitou humano. Continue ajudando e informe que a conversa será encaminhada.${identity.transferMessage ? ` Mensagem configurada: ${identity.transferMessage}` : ""}`
-      : `A equipe está fora do horário. Continue ajudando e informe que a solicitação humana ficará registrada.${identity.outOfHoursMessage ? ` Mensagem configurada: ${identity.outOfHoursMessage}` : ""}`) : "",
+      ? `O cliente insistiu em falar com uma pessoa. Continue ajudando até a transferência ocorrer.${identity.transferMessage ? ` Mensagem configurada: ${identity.transferMessage}` : ""}`
+      : `O cliente insistiu em falar com uma pessoa, mas a equipe está fora do horário. Registre a solicitação sem encerrar o atendimento: continue ajudando até uma pessoa ficar disponível.${identity.outOfHoursMessage ? ` Mensagem configurada: ${identity.outOfHoursMessage}` : ""}`) : "",
   ].filter(Boolean).join("\n\n");
   const messages = [{ role: "system" as const, content: system }, ...history.reverse().map(message => ({
     role: message.role === "assistant" ? "assistant" as const : "user" as const,
@@ -1252,7 +1309,7 @@ async function processMessage(
         const detail = configurationFailures.map(failure => `${failure.provider}: ${failure.error}`).join("; ");
         throw new Error(detail ? `Nenhum provider válido. ${detail}` : "Nenhum provider ativo com credenciais válidas");
       }
-      result = await new ProviderRouter(providers).complete({ messages });
+      result = await new ProviderRouter(providers, 2).complete({ messages });
       answer = result.text;
       const grounding = assessGroundedResponse(answer, groundingEvidence);
       if (!grounding.allowed) {
@@ -1308,8 +1365,8 @@ async function processMessage(
           : `Agente ${agentRoute.role}: resposta gerada; tentativas: ${result?.attemptedProviders.join(", ")}`),
   });
 
-  const needsHuman = transferIntent || transferPending || Boolean(generationError) || Boolean(toolError);
-  const nextStatus = needsHuman ? (openNow ? "human_requested" : "human_pending") : conversation.status;
+  const needsHuman = transferIntent || transferPending || Boolean(generationError);
+  const nextStatus = withdrewHumanRequest ? "active" : (needsHuman ? (openNow ? "human_requested" : "human_pending") : conversation.status);
   if (nextStatus !== conversation.status) await prisma.conversation.update({ where: { id: conversation.id }, data: { status: nextStatus } });
 
   if (deliver) {
@@ -1324,9 +1381,7 @@ async function processMessage(
     }
     if (needsHuman && openNow) {
       try {
-        await client.transferToHuman(conversationExternalId, chatwootSectorAssignment(settings, sector));
-        await prisma.conversation.update({ where: { id: conversation.id }, data: { status: "human_assigned" } });
-        await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "info", message: "Conversa atribuída ao atendimento humano" });
+        await transferToAvailableHuman({ tenantId: currentTenant.id, conversationId: conversation.id, conversationExternalId, settings, sector });
       } catch (error) {
         await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "error", message: `Falha na transferência humana: ${error instanceof Error ? error.message : "erro desconhecido"}` });
       }
@@ -2963,6 +3018,11 @@ async function bootstrap() {
 }
 
 await bootstrap();
+void processPendingHumanTransfers().catch(error => app.log.error(error, "failed to process pending human transfers at startup"));
+const pendingTransferTimer = setInterval(() => {
+  void processPendingHumanTransfers().catch(error => app.log.error(error, "failed to process pending human transfers"));
+}, 5 * 60_000);
+pendingTransferTimer.unref();
 await app.listen({ host: "0.0.0.0", port: Number(process.env.PORT ?? 3001) });
 
 let shutdownStarted = false;

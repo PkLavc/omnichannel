@@ -79,7 +79,7 @@ test("transfer detection covers real escalation reasons without matching generic
   assert.equal(detectTransferIntent("Quero falar com um atendente, por favor"), "human_requested");
   assert.equal(detectTransferIntent("Tenho uma contestação financeira"), "financial_analysis");
   assert.equal(detectTransferIntent("Preciso negociar uma condição especial"), "special_negotiation");
-  assert.equal(transferRequested("Isso não resolveu meu caso"), true);
+  assert.equal(transferRequested("Isso não resolveu meu caso"), false);
   assert.equal(transferRequested("Meu cadastro é de pessoa jurídica"), false);
 });
 

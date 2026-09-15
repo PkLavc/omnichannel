@@ -38,7 +38,10 @@ export function withCompletionDefaults(
 }
 
 export class ProviderRouter {
-  constructor(private readonly providers: readonly AiProvider[]) {}
+  constructor(
+    private readonly providers: readonly AiProvider[],
+    private readonly maxPasses = 1,
+  ) {}
 
   async complete(request: CompletionRequest): Promise<RoutedCompletionResult> {
     if (this.providers.length === 0) {
@@ -48,7 +51,8 @@ export class ProviderRouter {
     const attemptedProviders: string[] = [];
     const failures: Array<{ provider: string; error: string }> = [];
 
-    for (const provider of this.providers) {
+    for (let pass = 1; pass <= Math.max(1, Math.min(3, this.maxPasses)); pass++) {
+      for (const provider of this.providers) {
       attemptedProviders.push(provider.name);
 
       try {
@@ -73,6 +77,8 @@ export class ProviderRouter {
       } catch (error) {
         failures.push({ provider: provider.name, error: errorMessage(error) });
       }
+      }
+      if (pass < this.maxPasses) await new Promise(resolve => setTimeout(resolve, 350));
     }
 
     throw new Error(`Nenhum provedor disponível. ${failures.map(failure => `${failure.provider}: ${failure.error}`).join("; ")}`);

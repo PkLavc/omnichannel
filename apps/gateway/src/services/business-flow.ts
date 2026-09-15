@@ -474,7 +474,13 @@ export function detectTransferIntent(input: string): TransferReason | undefined 
 }
 
 export function transferRequested(input: string) {
-  return detectTransferIntent(input) !== undefined;
+  return detectTransferIntent(input) === "human_requested";
+}
+
+/** A client can withdraw a previously queued request before a human is assigned. */
+export function withdrawsHumanRequest(input: string) {
+  const value = normalizedIntent(input);
+  return /\b(?:nao precisa|nao quero|pode deixar|pode cancelar|ja resolvi|nao precisa de atendente)\b/.test(value);
 }
 
 export function automationSuppressed(status: string) {
