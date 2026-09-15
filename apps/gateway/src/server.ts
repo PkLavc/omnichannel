@@ -915,6 +915,8 @@ async function updateChatwootServiceCard(
 type ChatwootClosure = {
   status: CommercialOutcomeStatus;
   evidence: string[];
+  result: "Venda realizada" | "Sem venda";
+  reason?: string;
 };
 
 /**
@@ -939,11 +941,25 @@ function closureFromChatwootConversation(
   if (!won && !lost) return undefined;
 
   const reasonLabel = normalizedLabels.find(label => label.startsWith("motivo:"));
+  const reasonByLabel: Record<string, string> = {
+    preco: "Preço",
+    estoque: "Estoque",
+    prazo: "Prazo",
+    "sem-resposta": "Sem resposta",
+    desistencia: "Desistência",
+    concorrente: "Concorrente",
+    "fora-do-escopo": "Fora do escopo",
+    "dados-incompletos": "Dados incompletos",
+    outro: "Outro",
+  };
+  const reasonKey = reasonLabel?.slice("motivo:".length).trim();
   const rawReason = typeof attributes?.atendimento_motivo_encerramento === "string"
     ? attributes.atendimento_motivo_encerramento.trim()
     : "";
   return {
     status: won ? CommercialOutcomeStatus.WON : CommercialOutcomeStatus.LOST,
+    result: won ? "Venda realizada" : "Sem venda",
+    ...(reasonKey && reasonByLabel[reasonKey] ? { reason: reasonByLabel[reasonKey] } : rawReason ? { reason: rawReason } : {}),
     evidence: [
       "Fechamento informado pelo atendente no Chatwoot.",
       ...(reasonLabel ? [`Motivo: ${reasonLabel.slice("motivo:".length).trim()}.`] : []),
@@ -996,6 +1012,26 @@ async function synchronizeChatwootConversationState(
     evidence: closure.evidence,
     createdBy: "chatwoot:webhook",
   });
+
+  const desiredAttributes = {
+    atendimento_resultado: closure.result,
+    ...(closure.reason ? { atendimento_motivo_encerramento: closure.reason } : {}),
+  };
+  const requiresCardUpdate = Object.entries(desiredAttributes).some(([key, value]) =>
+    payload.customAttributes?.[key] !== value,
+  );
+  if (requiresCardUpdate) {
+    try {
+      await chatwoot(currentTenant.settings as Record<string, unknown>).updateConversationCustomAttributes(
+        conversationExternalId,
+        desiredAttributes,
+      );
+    } catch (error) {
+      // The outcome remains stored and versioned even if the optional visual
+      // mirror is temporarily unavailable. A webhook retry can repair it.
+      app.log.warn({ error, tenantId: currentTenant.id, conversationExternalId }, "could not mirror Chatwoot closure attributes");
+    }
+  }
 }
 
 function enqueue<T>(tenantId: string, conversationId: string, task: () => Promise<T>): Promise<T> {
@@ -1912,12 +1948,12 @@ async function handleChatwootWebhook(
   const conversationId = String(payloadConversation.id);
   const humanAssigned = payloadConversation.meta?.assignee != null;
   if (body.event === "conversation_updated" || body.event === "conversation_status_changed") {
-    await synchronizeChatwootConversationState(currentTenant, conversationId, {
+    await enqueue(currentTenant.id, conversationId, () => synchronizeChatwootConversationState(currentTenant, conversationId, {
       status: payloadConversation.status,
       assigneePresent: humanAssigned,
       labels: payloadConversation.labels,
       customAttributes: payloadConversation.custom_attributes,
-    });
+    }));
     return reply.code(202).send({ accepted: true, synchronized: true });
   }
   const incoming = body.message_type === "incoming" || body.message_type === 0;
