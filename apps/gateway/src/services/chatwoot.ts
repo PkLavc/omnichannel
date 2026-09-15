@@ -22,7 +22,14 @@ export class ChatwootError extends Error {
 }
 
 const WEBHOOK_NAME = "AI Gateway";
-const WEBHOOK_SUBSCRIPTIONS = ["message_created"] as const;
+// We need message events to answer, plus conversation state changes to keep the
+// local learning record in sync when an agent resolves, snoozes or returns a
+// conversation to automation from the Chatwoot UI.
+const WEBHOOK_SUBSCRIPTIONS = [
+  "message_created",
+  "conversation_updated",
+  "conversation_status_changed",
+] as const;
 
 type ChatwootWebhook = {
   id?: string | number;

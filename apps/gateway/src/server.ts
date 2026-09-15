@@ -213,7 +213,7 @@ const setupSchema = settingsSchema.extend({
 const webhookSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
   event: z.string(),
-  message_type: z.union([z.string(), z.number()]),
+  message_type: z.union([z.string(), z.number()]).optional(),
   content: z.string().nullable().optional(),
   private: z.boolean().optional(),
   account: z.object({ id: z.union([z.string(), z.number()]) }).passthrough().optional(),
@@ -226,6 +226,9 @@ const webhookSchema = z.object({
   conversation: z.object({
     id: z.union([z.string(), z.number()]),
     inbox_id: z.union([z.string(), z.number()]).optional(),
+    status: z.string().optional(),
+    labels: z.array(z.string()).optional(),
+    custom_attributes: z.record(z.unknown()).optional(),
     meta: z.object({
       assignee: z.unknown().nullable().optional(),
       sender: z.object({
@@ -814,6 +817,8 @@ const serviceCardDefinitions = [
   { key: "atendimento_data_hora", name: "Data e horário", description: "Data e horário escolhidos para o atendimento." },
   { key: "atendimento_agendamento_id", name: "ID do agendamento", description: "Identificador retornado pelo Zoho Creator." },
   { key: "atendimento_status", name: "Status do atendimento", description: "Situação atual do atendimento ou agendamento." },
+  { key: "atendimento_resultado", name: "Resultado do atendimento", description: "Resultado informado pelo atendente ao encerrar: ganho, perdido, resolvido ou outro." },
+  { key: "atendimento_motivo_encerramento", name: "Motivo do encerramento", description: "Motivo padronizado informado no fechamento." },
 ] as const;
 
 function serviceCardAttributes(conversationId: string, state: ConversationState) {
@@ -886,6 +891,92 @@ async function updateChatwootServiceCard(
     conversationId,
     serviceCardAttributes(conversationId, state),
   );
+}
+
+type ChatwootClosure = {
+  status: CommercialOutcomeStatus;
+  evidence: string[];
+};
+
+/**
+ * A macro can apply labels and resolve a conversation in one action. Labels are
+ * deliberately the contract here: they are visible, filterable in Chatwoot and
+ * do not require a seller to write free-form text after every sale.
+ */
+function closureFromChatwootConversation(
+  labels: readonly string[] | undefined,
+  attributes: Record<string, unknown> | undefined,
+): ChatwootClosure | undefined {
+  const normalizedLabels = (labels ?? [])
+    .map(label => label.trim().toLocaleLowerCase("pt-BR"))
+    .filter(Boolean);
+  const rawResult = typeof attributes?.atendimento_resultado === "string"
+    ? attributes.atendimento_resultado.trim().toLocaleLowerCase("pt-BR")
+    : "";
+  const won = normalizedLabels.some(label => ["resultado:ganho", "resultado:venda", "resultado:vendido"].includes(label))
+    || ["ganho", "venda", "vendido", "venda realizada"].includes(rawResult);
+  const lost = normalizedLabels.some(label => ["resultado:perdido", "resultado:sem-venda", "resultado:sem venda"].includes(label))
+    || ["perdido", "sem venda", "sem-venda"].includes(rawResult);
+  if (!won && !lost) return undefined;
+
+  const reasonLabel = normalizedLabels.find(label => label.startsWith("motivo:"));
+  const rawReason = typeof attributes?.atendimento_motivo_encerramento === "string"
+    ? attributes.atendimento_motivo_encerramento.trim()
+    : "";
+  return {
+    status: won ? CommercialOutcomeStatus.WON : CommercialOutcomeStatus.LOST,
+    evidence: [
+      "Fechamento informado pelo atendente no Chatwoot.",
+      ...(reasonLabel ? [`Motivo: ${reasonLabel.slice("motivo:".length).trim()}.`] : []),
+      ...(!reasonLabel && rawReason ? [`Motivo: ${rawReason}.`] : []),
+    ],
+  };
+}
+
+async function synchronizeChatwootConversationState(
+  currentTenant: TenantRow,
+  conversationExternalId: string,
+  payload: {
+    status?: string;
+    assigneePresent: boolean;
+    labels?: readonly string[];
+    customAttributes?: Record<string, unknown>;
+  },
+) {
+  const conversation = await conversationForTenant(currentTenant.id, conversationExternalId);
+  if (!conversation) return;
+
+  const chatwootStatus = payload.status?.trim().toLocaleLowerCase("pt-BR");
+  const localStatus = chatwootStatus === "resolved"
+    ? "resolved"
+    : chatwootStatus === "snoozed"
+      ? "snoozed"
+      : chatwootStatus === "open" || chatwootStatus === "pending"
+        ? (payload.assigneePresent ? "human_assigned" : "active")
+        : undefined;
+  if (localStatus && conversation.status !== localStatus) {
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { status: localStatus } });
+  }
+
+  const closure = closureFromChatwootConversation(payload.labels, payload.customAttributes);
+  if (!closure) return;
+  const latest = await prisma.commercialOutcome.findFirst({
+    where: { tenantId: currentTenant.id, conversationId: conversation.id },
+    orderBy: { revision: "desc" },
+  });
+  const sameClosure = latest?.status === closure.status
+    && latest.source === "chatwoot_closure"
+    && JSON.stringify(latest.evidence) === JSON.stringify(closure.evidence);
+  if (sameClosure) return;
+  await continuousImprovement.recordCommercialOutcome({
+    tenantId: currentTenant.id,
+    conversationId: conversation.id,
+    status: closure.status,
+    source: "chatwoot_closure",
+    confidence: 1,
+    evidence: closure.evidence,
+    createdBy: "chatwoot:webhook",
+  });
 }
 
 function enqueue<T>(tenantId: string, conversationId: string, task: () => Promise<T>): Promise<T> {
@@ -1787,10 +1878,19 @@ async function handleChatwootWebhook(
   if (expectedInboxes.size && payloadInbox && !expectedInboxes.has(payloadInbox)) {
     return reply.code(202).send({ ignored: true, reason: "inbox_mismatch" });
   }
-  const incoming = body.message_type === "incoming" || body.message_type === 0;
-  if (body.event !== "message_created" || !incoming || body.private || !body.content?.trim()) return reply.code(202).send({ ignored: true });
   const conversationId = String(body.conversation.id);
   const humanAssigned = body.conversation.meta?.assignee != null;
+  if (body.event === "conversation_updated" || body.event === "conversation_status_changed") {
+    await synchronizeChatwootConversationState(currentTenant, conversationId, {
+      status: body.conversation.status,
+      assigneePresent: humanAssigned,
+      labels: body.conversation.labels,
+      customAttributes: body.conversation.custom_attributes,
+    });
+    return reply.code(202).send({ accepted: true, synchronized: true });
+  }
+  const incoming = body.message_type === "incoming" || body.message_type === 0;
+  if (body.event !== "message_created" || !incoming || body.private || !body.content?.trim()) return reply.code(202).send({ ignored: true });
   const sender = body.sender ?? body.conversation.meta?.sender;
   const contactState: ConversationState = {
     ...(sender?.name?.trim() ? { nome: sender.name.trim() } : {}),

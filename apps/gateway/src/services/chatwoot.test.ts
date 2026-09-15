@@ -128,7 +128,7 @@ test("cria o webhook quando a conta ainda não possui a integração", async () 
   assert.deepEqual(requests[1].body, {
     name: "AI Gateway",
     url: "http://gateway:3001/webhooks/chatwoot",
-    subscriptions: ["message_created"],
+    subscriptions: ["message_created", "conversation_updated", "conversation_status_changed"],
   });
 });
 
@@ -152,7 +152,7 @@ test("atualiza de forma idempotente webhook existente por nome ou URL", async ()
   assert.deepEqual(requests[1].body, {
     name: "AI Gateway",
     url: "http://gateway:3001/webhooks/chatwoot",
-    subscriptions: ["message_created"],
+    subscriptions: ["message_created", "conversation_updated", "conversation_status_changed"],
   });
 });
 
@@ -174,7 +174,7 @@ test("usa nome de webhook por tenant sem colidir na mesma conta Chatwoot", async
   assert.deepEqual(requests[1].body, {
     name: "AI Gateway · company-alpha",
     url: "http://gateway:3001/webhooks/chatwoot/company-alpha",
-    subscriptions: ["message_created"],
+    subscriptions: ["message_created", "conversation_updated", "conversation_status_changed"],
   });
 });
 
@@ -198,6 +198,6 @@ test("reconcilia o nome legado ao migrar o webhook para a rota estável do tenan
   assert.deepEqual(requests[1].body, {
     name: "AI Gateway - tenant-stable-id",
     url: "http://gateway:3001/webhooks/chatwoot/tenant-stable-id",
-    subscriptions: ["message_created"],
+    subscriptions: ["message_created", "conversation_updated", "conversation_status_changed"],
   });
 });
