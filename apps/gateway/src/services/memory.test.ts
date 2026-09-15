@@ -47,6 +47,20 @@ test("pedido de agendamento separa serviço do modelo", () => {
   assert.equal(state.unidadeAgendamento, undefined);
 });
 
+test("entende horário relativo e troca a localização durante busca de loja", () => {
+  const pending = extractConversationState("Qual a loja mais perto de mim?", {});
+  assert.equal(pending.buscaLojaProxima, "true");
+  assert.equal(pending.unidadeDesejada, undefined);
+  const rio = extractConversationState("e Rio de Janeiro?", { ...pending, cep: "31210380" });
+  assert.equal(rio.cidade, "Rio de Janeiro");
+  assert.equal(rio.cep, undefined);
+  const bairro = extractConversationState("Copacabana", rio);
+  assert.equal(bairro.bairro, "Copacabana");
+  const schedule = extractConversationState("Pode agendar 11 horas de hoje", bairro);
+  assert.equal(schedule.dataDesejada, "hoje");
+  assert.equal(schedule.horarioDesejado, "11:00");
+});
+
 test("resumo preserva fatos estruturados", () => {
   const messages = Array.from({ length: 40 }, (_, index) => ({
     role: index % 2 ? "assistant" : "user",

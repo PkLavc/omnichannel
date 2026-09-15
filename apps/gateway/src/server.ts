@@ -39,7 +39,7 @@ import { ChatwootClient, type ChatwootAssignment, type ChatwootConfig } from "./
 import { importFile, importQuickReplies } from "./services/importer.js";
 import { runDueCatalogSyncs, synchronizeCatalog } from "./services/catalog-sync.js";
 import { deterministicSummary, extractConversationState, type ConversationState } from "./services/memory.js";
-import { proactiveIntakeAnswer } from "./services/intake.js";
+import { outOfScopeServiceAnswer, proactiveIntakeAnswer } from "./services/intake.js";
 import { LearningCandidateService } from "./services/learning-candidates.js";
 import {
   ContinuousImprovementError,
@@ -77,6 +77,7 @@ import {
 import { buildSpecializedAgentPrompt, routeSpecializedAgent } from "./services/specialized-agents.js";
 import { buildInitialTenantSettings, embeddingOptionsFromSettings, mergeTenantSettings, promptSettings, safeTenantSettings } from "./services/tenant-settings.js";
 import { createHttpToolAdapter, runConfiguredTools, testHttpTool, toolDefinitions, type ToolAuth } from "./services/tools.js";
+import { locateNearestStore, parseStoreLocations } from "./services/store-locator.js";
 
 const prisma = new PrismaClient();
 const continuousImprovement = new ContinuousImprovementService(prisma);
@@ -154,6 +155,10 @@ const settingsSchema = z.object({
   language: z.string().min(2).max(35).nullable().optional(),
   businessRulesEnabled: z.boolean().optional(),
   businessRulesDocument: z.unknown().optional(),
+  serviceScope: z.object({
+    deniedBrands: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
+    outOfScopeMessage: z.string().trim().min(1).max(1_000).optional(),
+  }).partial().optional(),
   prompts: z.object({
     system: z.string().max(30_000).nullable().optional(),
     commercial: z.string().max(20_000).nullable().optional(),
@@ -864,6 +869,26 @@ function serviceCardAttributes(conversationId: string, state: ConversationState)
 }
 
 const appointmentIntentPattern = /\b(?:agendar|marcar|remarcar|quero\s+(?:um\s+)?agendamento)\b/iu;
+const appointmentAvailabilityPattern = /\bhor[aá]rios?\b|\bdisponibilidade\b/iu;
+const appointmentTimeSelectionPattern = /\b(?:hoje|amanh[aã])\b|\b(?:[01]?\d|2[0-3])(?::[0-5]\d|\s*h(?:oras?)?(?:\s*[0-5]\d)?)\b/iu;
+const nearestStoreIntentPattern = /\b(?:loja|unidade)\s+mais\s+pr[oó]xima\b|\b(?:loja|unidade)\s+mais\s+perto\b/iu;
+
+function storeSearchLocation(state: ConversationState) {
+  return state.endereco
+    || state.cep
+    || [state.bairro, state.cidade].filter(Boolean).join(", ")
+    || state.cidade
+    || "";
+}
+
+function tenantStoreLocations(tenantSlug: string) {
+  try {
+    const path = join(process.env.PRIVATE_DATA_ROOT ?? "/private-data", "tenants", tenantSlug, "locations.json");
+    return parseStoreLocations(JSON.parse(readFileSync(path, "utf8")));
+  } catch {
+    return [];
+  }
+}
 const appointmentFieldLabels: Record<string, string> = {
   nome: "nome",
   telefone: "telefone",
@@ -1222,10 +1247,22 @@ async function processMessage(
   const humanRequestCount = withdrewHumanRequest ? 0 : (requestedHuman ? previousHumanRequests + 1 : previousHumanRequests);
   const sector = detectConversationSector(operationalInput, previousState.sector);
   if (sector) state.sector = sector;
-  const appointmentIntent = previousState.intencaoAgendamento === "true" || appointmentIntentPattern.test(operationalInput);
+  const appointmentIntent = previousState.intencaoAgendamento === "true"
+    || appointmentIntentPattern.test(operationalInput)
+    || (appointmentAvailabilityPattern.test(operationalInput) && Boolean(state.unidadeAgendamento || state.unidadeDesejada));
   if (appointmentIntent) state.intencaoAgendamento = "true";
   const missingForAppointment = appointmentIntent ? missingAppointmentFields(state) : [];
   const appointmentQualified = appointmentIntent && missingForAppointment.length === 0;
+  const shouldConsultAppointment = appointmentIntent && !state.agendamentoId && (
+    appointmentAvailabilityPattern.test(operationalInput)
+    || appointmentTimeSelectionPattern.test(operationalInput)
+    || appointmentQualified
+  );
+  const locationChanged = ["endereco", "cep", "bairro", "cidade"].some(key => state[key] !== previousState[key]);
+  const shouldLocateStore = Boolean(storeSearchLocation(state)) && (
+    nearestStoreIntentPattern.test(operationalInput)
+    || (previousState.buscaLojaProxima === "true" && locationChanged)
+  );
   if (appointmentQualified) state.statusAgendamento = "Pré-agendamento concluído";
   else if (appointmentIntent) state.statusAgendamento = "Coletando dados";
   if (JSON.stringify(state) !== JSON.stringify(previousState)) {
@@ -1270,12 +1307,16 @@ async function processMessage(
   }
   const current = await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } });
   const history = await prisma.conversationMessage.findMany({ where: { conversationId: conversation.id }, orderBy: { createdAt: "desc" }, take: 20 });
+  const serviceScope = settings.serviceScope && typeof settings.serviceScope === "object" && !Array.isArray(settings.serviceScope)
+    ? settings.serviceScope as { deniedBrands?: string[]; outOfScopeMessage?: string }
+    : undefined;
+  const scriptedScopeAnswer = outOfScopeServiceAnswer(operationalInput, serviceScope);
   const scriptedSecurityAnswer = injectionAssessment.detected && !operationalInput
     ? "Posso ajudar com o atendimento da empresa, mas não posso alterar minhas regras internas nem revelar instruções ou credenciais. Qual necessidade legítima você quer resolver?"
     : undefined;
-  const scriptedAppointmentAnswer = scriptedSecurityAnswer
+  const scriptedAppointmentAnswer = scriptedSecurityAnswer || scriptedScopeAnswer || shouldConsultAppointment
     ? undefined
-    : appointmentIntent
+    : appointmentIntent && !state.agendamentoId
       ? appointmentQualificationAnswer(state, missingForAppointment)
       : undefined;
   const scriptedIntakeAnswer = scriptedAppointmentAnswer
@@ -1286,7 +1327,7 @@ async function processMessage(
       messageCount,
       promptSettings(settings).welcomeMessage,
     );
-  let scriptedAnswer = scriptedSecurityAnswer ?? scriptedAppointmentAnswer ?? scriptedIntakeAnswer;
+  let scriptedAnswer = scriptedSecurityAnswer ?? scriptedScopeAnswer ?? scriptedAppointmentAnswer ?? scriptedIntakeAnswer;
   const openingIdentity = promptSettings(settings);
   const openingSequence = scriptedIntakeAnswer === openingIdentity.welcomeMessage && Boolean(scriptedIntakeAnswer)
     ? {
@@ -1302,6 +1343,28 @@ async function processMessage(
       const httpTools = await configuredHttpTools(currentTenant);
       const toolContext = { tenantId: currentTenant.id, conversationExternalId, state };
       if (!scriptedAnswer) usedTools = await runConfiguredTools(operationalInput, httpTools, toolContext);
+      if (shouldLocateStore) {
+        const stores = tenantStoreLocations(currentTenant.slug);
+        if (stores.length) {
+          const storeResult = await locateNearestStore({
+            prisma,
+            query: storeSearchLocation(state),
+            stores,
+          });
+          usedTools = [...usedTools.filter(result => result.name !== "consultarUnidade"), storeResult];
+          const selectedUnit = typeof storeResult.data?.selectedUnit === "string" ? storeResult.data.selectedUnit : undefined;
+          if (selectedUnit) {
+            state.unidadeDesejada = selectedUnit;
+            delete state.buscaLojaProxima;
+          }
+          scriptedAnswer = storeResult.content;
+          await prisma.conversation.update({ where: { id: conversation.id }, data: { state } });
+        }
+      }
+      if (shouldConsultAppointment && !usedTools.some(result => result.name === "agendamento")) {
+        const appointmentTool = httpTools.find(tool => tool.name === "agendamento");
+        if (appointmentTool) usedTools.push(await appointmentTool.execute(operationalInput, toolContext));
+      }
       // Customer/OS data can only be read with a channel number supplied by
       // Chatwoot or a CPF explicitly supplied by the customer. A number parsed
       // from message text alone is deliberately not accepted as authorization.
@@ -1317,6 +1380,40 @@ async function processMessage(
     }
   }
   catch (error) { toolError = error instanceof Error ? error.message : "Falha em Tool"; await writeLog({ tenantId: currentTenant.id, conversationExternalId, level: "error", message: toolError }); }
+  if (shouldConsultAppointment && !scriptedAnswer) {
+    const appointmentResult = usedTools.find(result => result.name === "agendamento");
+    if (appointmentResult) {
+      scriptedAnswer = appointmentResult.content;
+      const appointmentId = appointmentResult.data && typeof appointmentResult.data.agendamento_id === "string"
+        ? appointmentResult.data.agendamento_id
+        : undefined;
+      if (appointmentId) {
+        state.agendamentoId = appointmentId;
+        state.statusAgendamento = "Agendamento confirmado";
+        await prisma.conversation.update({ where: { id: conversation.id }, data: { state } });
+        if (deliver) {
+          try {
+            await updateChatwootServiceCard(settings, conversationExternalId, state);
+          } catch (error) {
+            await writeLog({
+              tenantId: currentTenant.id,
+              conversationExternalId,
+              level: "error",
+              message: `Falha ao registrar o agendamento no cartão do Chatwoot: ${error instanceof Error ? error.message : "erro desconhecido"}`,
+            });
+          }
+        }
+      }
+      if (appointmentResult.found && appointmentTimeSelectionPattern.test(operationalInput)) {
+        const stillMissing = missingForAppointment.filter(field => field !== "dataDesejada" && field !== "horarioDesejado");
+        if (stillMissing.length) {
+          scriptedAnswer += `\n\nPara concluir o agendamento, preciso confirmar: ${stillMissing.map(field => appointmentFieldLabels[field]).join(", ")}.`;
+        }
+      }
+    } else {
+      scriptedAnswer = "Não consegui consultar a agenda em tempo real agora. Tente novamente em alguns instantes.";
+    }
+  }
   const groundingEvidence: GroundingEvidence[] = usedTools
     .filter(result => result.found)
     .map(result => ({ source: "tool", content: result.content }));

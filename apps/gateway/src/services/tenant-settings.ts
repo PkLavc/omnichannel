@@ -18,7 +18,7 @@ function record(value: unknown): JsonSettings {
 export function mergeTenantSettings(existing: unknown, update: JsonSettings): JsonSettings {
   const current = record(existing);
   const result: JsonSettings = { ...current, ...update };
-  for (const key of ["businessHours", "prompts", "embeddings"] as const) {
+  for (const key of ["businessHours", "prompts", "embeddings", "serviceScope"] as const) {
     if (key in update) result[key] = { ...record(current[key]), ...record(update[key]) };
   }
   return result;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { proactiveIntakeAnswer } from "./intake.js";
+import { outOfScopeServiceAnswer, proactiveIntakeAnswer } from "./intake.js";
 
 test("loja mais próxima exige localização antes de recomendar", () => {
   assert.match(proactiveIntakeAnswer("Qual a loja mais perto?", {}, 2) ?? "", /bairro, cidade, CEP ou endereço/i);
@@ -23,4 +23,13 @@ test("abertura vaga usa exatamente a mensagem de boas-vindas configurada", () =>
 
 test("abertura vaga sem mensagem configurada segue para o provider", () => {
   assert.equal(proactiveIntakeAnswer("Olá", {}, 1), undefined);
+});
+
+test("nega reparo fora do escopo sem oferecer consultoria externa", () => {
+  const answer = outOfScopeServiceAnswer("Quero consertar meu Samsung S10", {
+    deniedBrands: ["Samsung", "Android"],
+    outOfScopeMessage: "Não trabalhamos com aparelhos Android ou Samsung. Posso ajudar com produtos e serviços Apple.",
+  });
+  assert.equal(answer, "Não trabalhamos com aparelhos Android ou Samsung. Posso ajudar com produtos e serviços Apple.");
+  assert.doesNotMatch(answer ?? "", /encontrar|indicar|recomendar.*assistência/i);
 });
