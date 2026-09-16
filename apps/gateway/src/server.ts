@@ -2329,8 +2329,13 @@ app.put("/admin/settings", async (request, reply) => {
 app.get("/admin/chatwoot/channels", async (request) => {
   const currentTenant = await tenant("channels:read", request);
   const settings = currentTenant.settings as Record<string, unknown>;
+  const selected = configuredChatwootInboxIds(settings);
+  const available = settings.chatwootUrl && settings.chatwootAccountId && settings.chatwootApiToken
+    ? await chatwoot(settings).listInboxes()
+    : [];
   return {
-    chatwootInboxIds: configuredChatwootInboxIds(settings),
+    chatwootInboxIds: selected,
+    availableChannels: available.map(channel => ({ ...channel, selected: selected.includes(channel.id) })),
     configured: Boolean(settings.chatwootUrl && settings.chatwootAccountId && settings.chatwootApiToken),
   };
 });

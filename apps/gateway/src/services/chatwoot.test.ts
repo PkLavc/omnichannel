@@ -136,6 +136,21 @@ test("valida todos os canais vinculados à mesma empresa", async () => {
   ]);
 });
 
+test("lista canais da conta em formato seguro para o gerenciador", async () => {
+  requests = [];
+  responseStatuses = [];
+  responseBodies = [{ payload: [
+    { id: 11, name: "WhatsApp principal", channel_type: "Channel::Whatsapp" },
+    { id: 12, name: "Instagram", channel_type: "Channel::FacebookPage" },
+  ] }];
+  const client = new ChatwootClient({ url, accountId: "7", apiToken: "secret" });
+  assert.deepEqual(await client.listInboxes(), [
+    { id: "11", name: "WhatsApp principal", channelType: "Channel::Whatsapp" },
+    { id: "12", name: "Instagram", channelType: "Channel::FacebookPage" },
+  ]);
+  assert.equal(requests[0].path, "/api/v1/accounts/7/inboxes");
+});
+
 test("atualiza um atributo de lista existente quando a taxonomia mudar", async () => {
   requests = [];
   responseStatuses = [];

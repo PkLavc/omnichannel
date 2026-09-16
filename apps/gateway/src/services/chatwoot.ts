@@ -51,6 +51,12 @@ export type ChatwootCustomAttributeDefinition = {
   values?: readonly string[];
 };
 
+export type ChatwootInboxSummary = {
+  id: string;
+  name: string;
+  channelType: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -136,6 +142,28 @@ export class ChatwootClient {
       `/api/v1/accounts/${encodeURIComponent(this.config.accountId)}/conversations/${encodeURIComponent(conversationId)}/messages`,
       { content, message_type: "outgoing", private: false, content_type: "text" },
     );
+  }
+
+  async listInboxes(): Promise<ChatwootInboxSummary[]> {
+    const result = await this.request(
+      "GET",
+      `/api/v1/accounts/${encodeURIComponent(this.config.accountId)}/inboxes`,
+    );
+    const root = result && typeof result === "object" && !Array.isArray(result)
+      ? result as Record<string, unknown>
+      : {};
+    const rows = Array.isArray(result) ? result : Array.isArray(root.payload) ? root.payload : [];
+    return rows.flatMap(value => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+      const row = value as Record<string, unknown>;
+      const id = typeof row.id === "number" || typeof row.id === "string" ? String(row.id) : "";
+      if (!id) return [];
+      return [{
+        id,
+        name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : `Canal ${id}`,
+        channelType: typeof row.channel_type === "string" ? row.channel_type : "Channel::Unknown",
+      }];
+    });
   }
 
   async sendAttachment(

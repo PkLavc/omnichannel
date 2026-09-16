@@ -266,7 +266,7 @@
             <div class="grid">
               <div class="col-4 field channel-config-full"><label for="cwUrl">URL interna</label><input id="cwUrl" placeholder="http://chatwoot:3000"></div>
               <div class="col-2 field channel-config-full"><label for="cwAccount">Account ID</label><input id="cwAccount"></div>
-              <div class="col-6 field"><label for="cwInbox">Inbox IDs dos canais desta empresa</label><textarea id="cwInbox" rows="3" placeholder="1&#10;2&#10;3"></textarea><small>Use vírgulas ou uma linha por ID. Todas as inboxes informadas devem pertencer à empresa selecionada.</small></div>
+              <div class="col-6 field"><label for="cwInbox">Canais desta empresa</label><div id="cwAvailableChannels" style="display:grid;gap:8px;margin:6px 0 10px"></div><textarea id="cwInbox" rows="3" placeholder="1&#10;2&#10;3"></textarea><small id="cwInboxHelp">Marque os canais que devem usar este bot. Administradores também podem informar IDs manualmente.</small></div>
               <div class="col-2 field channel-config-full"><label for="cwTeam">Team ID padrão</label><input id="cwTeam" type="number" min="1"></div>
               <div class="col-2 field channel-config-full"><label for="cwAssignee">Assignee ID padrão</label><input id="cwAssignee" type="number" min="1"></div>
               <div class="col-8 field channel-config-full"><label for="cwWebhook">URL do webhook desta empresa</label><input id="cwWebhook" placeholder="http://gateway:3001/webhooks/chatwoot/:tenantSlug"></div>
@@ -903,6 +903,8 @@
     document.querySelectorAll('[data-capability]').forEach(function(item){item.classList.toggle('capability-hidden',!hasCapability(item.dataset.capability))});
     document.querySelectorAll('[data-capability-section]').forEach(function(item){item.classList.toggle('capability-hidden',!hasCapability(item.dataset.capabilitySection))});
     var channelOnly=hasCapability('channelsRead')&&!hasCapability('tenantRead');
+    el('cwInbox').classList.toggle('hidden',channelOnly);
+    el('cwInboxHelp').textContent=channelOnly?'Marque os canais que devem usar este bot.':'Informe os IDs das inboxes ou marque os canais listados.';
     document.querySelectorAll('.channel-config-full').forEach(function(item){item.classList.toggle('capability-hidden',channelOnly)});
     ['Roteamento por setor','Horário comercial'].forEach(function(title){document.querySelectorAll('#page-chatwoot .card h3').forEach(function(heading){if(heading.textContent.trim()===title)heading.closest('.card').classList.toggle('capability-hidden',channelOnly)})});
     el('providersAccessNote').classList.toggle('hidden',hasCapability('manageProviders'));
@@ -1177,6 +1179,9 @@
     el('cwUrl').value=settings.chatwootUrl||'';
     el('cwAccount').value=settings.chatwootAccountId||'';
     el('cwInbox').value=configuredChatwootInboxIds(settings).join('\n');
+    var available=Array.isArray(settings.availableChannels)?settings.availableChannels:[];
+    el('cwAvailableChannels').innerHTML=available.map(function(channel){return '<label class="check"><input type="checkbox" data-chatwoot-inbox-id="'+escapeHtml(channel.id)+'" '+(channel.selected?'checked':'')+'> <span><strong>'+escapeHtml(channel.name)+'</strong><br><small>'+escapeHtml(channel.channelType||'Canal Chatwoot')+'</small></span></label>'}).join('');
+    el('cwAvailableChannels').classList.toggle('hidden',!available.length);
     el('cwWebhook').value=tenantWebhookUrl(settings.chatwootWebhookUrl);
     el('cwTeam').value=settings.chatwootTeamId||'';
     el('cwAssignee').value=settings.chatwootAssigneeId||'';
@@ -1191,14 +1196,18 @@
     el('timezone').value=hours.timezone||'America/Sao_Paulo';
     el('schedule').value=JSON.stringify(hours.schedule||{},null,2);
   }
+  function selectedChatwootInboxIds(){
+    var options=Array.from(document.querySelectorAll('[data-chatwoot-inbox-id]'));
+    return options.length?options.filter(function(item){return item.checked}).map(function(item){return item.dataset.chatwootInboxId}):parseChatwootInboxIds(el('cwInbox').value);
+  }
   function chatwootPayload(){
-    var schedule,inboxIds=parseChatwootInboxIds(el('cwInbox').value);
+    var schedule,inboxIds=selectedChatwootInboxIds();
     try{schedule=JSON.parse(el('schedule').value||'{}')}catch(ignore){throw new Error('O JSON do horário comercial é inválido')}
     return {chatwootUrl:el('cwUrl').value.trim()||null,chatwootAccountId:el('cwAccount').value.trim()||null,chatwootInboxIds:inboxIds,chatwootInboxId:inboxIds[0]||null,chatwootWebhookUrl:el('cwWebhook').value.trim()||null,chatwootApiToken:el('cwClearToken').checked?null:(el('cwToken').value||undefined),webhookSecret:el('cwClearSecret').checked?null:(el('cwWebhookSecret').value||undefined),chatwootTeamId:numberOrNull(el('cwTeam').value),chatwootAssigneeId:numberOrNull(el('cwAssignee').value),chatwootSectorRoutes:chatwootSectorRoutesFromForm(),businessHours:{timezone:el('timezone').value.trim()||'America/Sao_Paulo',schedule:schedule}};
   }
   async function saveChatwoot(silent){
     var channelOnly=hasCapability('channelsWrite')&&!hasCapability('tenantWrite');
-    var payload=channelOnly?{chatwootInboxIds:parseChatwootInboxIds(el('cwInbox').value)}:chatwootPayload();
+    var payload=channelOnly?{chatwootInboxIds:selectedChatwootInboxIds()}:chatwootPayload();
     var result=await request(channelOnly?'/admin/chatwoot/channels':'/admin/settings',{method:'PUT',body:JSON.stringify(payload)});
     if(!silent){showNotice('Canais Chatwoot salvos.');await reloadSettings()}
     return result;
