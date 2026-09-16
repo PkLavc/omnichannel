@@ -68,6 +68,36 @@ test("não confunde data e horário do agendamento com o serviço desejado", () 
   assert.equal(state.servico, undefined);
 });
 
+test("troca uma localização anterior quando o cliente pergunta por unidade perto de outro bairro", () => {
+  const state = extractConversationState("Sim, tem uma unidade perto de Copacabana?", {
+    endereco: "Barra",
+    buscaLojaProxima: "true",
+  });
+  assert.equal(state.bairro, "Copacabana");
+  assert.equal(state.endereco, undefined);
+  assert.equal(state.buscaLojaProxima, "true");
+});
+
+test("não transforma uma pergunta sobre disponibilidade no nome da unidade", () => {
+  const state = extractConversationState("Qual unidade temhorario disponivel", { unidadeDesejada: "Ipanema" });
+  assert.equal(state.unidadeDesejada, "Ipanema");
+});
+
+test("resposta negativa encerra a coleta de agendamento sem apagar os demais dados", () => {
+  const state = extractConversationState("não", {
+    intencaoAgendamento: "true",
+    statusAgendamento: "Coletando dados",
+    dataDesejada: "amanhã",
+    horarioDesejado: "11:00",
+    modelo: "iPhone X",
+  });
+  assert.equal(state.intencaoAgendamento, undefined);
+  assert.equal(state.statusAgendamento, undefined);
+  assert.equal(state.dataDesejada, undefined);
+  assert.equal(state.horarioDesejado, undefined);
+  assert.equal(state.modelo, "iPhone X");
+});
+
 test("resumo preserva fatos estruturados", () => {
   const messages = Array.from({ length: 40 }, (_, index) => ({
     role: index % 2 ? "assistant" : "user",

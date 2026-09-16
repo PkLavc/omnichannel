@@ -4,7 +4,9 @@ const first = (input: string, pattern: RegExp) => input.match(pattern)?.[1]?.tri
 
 export function extractConversationState(input: string, previous: ConversationState = {}): ConversationState {
   const next = { ...previous };
-  const asksNearestStore = /\b(?:loja|unidade)\s+mais\s+pr[oó]xima\b|\bqual\s+(?:a\s+)?(?:loja|unidade)\s+mais\s+perto\b/iu.test(input);
+  const asksNearestStore = /\b(?:loja|unidade)\s+(?:mais\s+)?pr[oó]xima\b|\b(?:qual\s+(?:a\s+)?)?(?:loja|unidade)\s+(?:mais\s+)?perto\b/iu.test(input);
+  const cancelsAppointment = previous.intencaoAgendamento === "true"
+    && /^\s*(?:n[aã]o|cancel(?:a|ar|e)|desist(?:i|o|ir)|n[aã]o\s+quero(?:\s+agendar)?)\s*[.!?]*\s*$/iu.test(input);
   const phone = first(
     input,
     /(?<![\p{L}\p{N}_-])(?:\+?55[\s.-]*)?(\(?\d{2}\)?[\s.-]*9?\d{4}[-\s.]?\d{4})(?![\p{L}\p{N}_-])/u,
@@ -37,10 +39,7 @@ export function extractConversationState(input: string, previous: ConversationSt
   const usableService = service && !/^(?:(?:hoje|amanh[aã])\b|(?:[01]?\d|2[0-3])(?::[0-5]\d|\s*h(?:oras?)?)\b)/iu.test(service)
     ? service
     : undefined;
-  const desiredUnit = first(
-    input,
-    /(?:unidade|loja)(?: de prefer[eê]ncia| desejada| mais pr[oó]xima)?(?:\s+(?:é|e|da|de|do|em))?\s*[:\-]?\s*([\p{L}\d][\p{L}\d\s'-]{1,70}?)(?=\s+em\s+\d{1,2}[/-]|\s+(?:às|as)\s+\d{1,2}:\d{2}|[,.!?]|$)/iu,
-  );
+  const desiredUnit = first(input, /(?:(?:unidade|loja)(?:\s+de\s+prefer[eê]ncia|\s+desejada)\s*(?:é|e|:|-)?|(?:na|no|para\s+a|para\s+o)\s+(?:unidade|loja))\s*([\p{L}\d][\p{L}\d\s'-]{1,70}?)(?=\s+em\s+\d{1,2}[/-]|\s+(?:às|as)\s+\d{1,2}:\d{2}|[,.!?]|$)/iu);
   const scheduledUnit = first(
     input,
     /(?:agendar|marcar|remarcar)\s+(?:na|no|para a|para o)\s+(?:unidade|loja)\s+([\p{L}\d][\p{L}\d\s'-]{1,70}?)(?=\s+em\s+\d{1,2}[/-]|\s+(?:às|as)\s+\d{1,2}:\d{2}|[,.!?]|$)/iu,
@@ -68,10 +67,22 @@ export function extractConversationState(input: string, previous: ConversationSt
   if (scheduledUnit) next.unidadeAgendamento = scheduledUnit.replace(/[.!?].*$/, "").trim();
   if (asksNearestStore) next.buscaLojaProxima = "true";
 
+  if (cancelsAppointment) {
+    delete next.intencaoAgendamento;
+    delete next.statusAgendamento;
+    delete next.dataDesejada;
+    delete next.horarioDesejado;
+  }
+
   if (previous.buscaLojaProxima === "true" || asksNearestStore) {
+    const nearLocation = input.match(/\b(?:loja|unidade)\s+(?:mais\s+)?perto\s+de\s+([\p{L}][\p{L}\s'-]{1,60}?)(?=[?!.]|$)/iu)?.[1]?.trim();
     const alternative = input.match(/^\s*e\s+([\p{L}][\p{L}\s'-]{1,60})\s*[?!.]*\s*$/iu)?.[1]?.trim();
     const bareLocation = input.match(/^\s*([\p{L}][\p{L}\s'-]{1,60})\s*[?!.]*\s*$/u)?.[1]?.trim();
-    if (alternative) {
+    if (nearLocation) {
+      next.bairro = nearLocation;
+      delete next.cep;
+      delete next.endereco;
+    } else if (alternative) {
       next.cidade = alternative;
       delete next.cep;
       delete next.endereco;

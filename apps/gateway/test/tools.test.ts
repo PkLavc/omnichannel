@@ -59,6 +59,7 @@ test("appointment Tool recognizes availability in singular, plural and without a
   assert.equal((await runMatchingTools("Qual horario disponivel?")).length, 1);
   assert.equal((await runMatchingTools("Quais horários disponíveis?")).length, 1);
   assert.equal((await runMatchingTools("Tem disponibilidade para atendimento?")).length, 1);
+  assert.equal((await runMatchingTools("Qual unidade temhorario disponivel?")).length, 1);
 });
 
 test("configured HTTP Tool sends standardized payload and authentication", async () => {

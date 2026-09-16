@@ -869,9 +869,10 @@ function serviceCardAttributes(conversationId: string, state: ConversationState)
 }
 
 const appointmentIntentPattern = /\b(?:agendar|marcar|remarcar|quero\s+(?:um\s+)?agendamento)\b/iu;
-const appointmentAvailabilityPattern = /\bhor[aá]rios?\b|\bdisponibilidade\b/iu;
+const appointmentAvailabilityPattern = /\bhor[aá]rios?\b|\bdisponibilidade\b|\btem\s*hor[aá]rio/iu;
 const appointmentTimeSelectionPattern = /\b(?:hoje|amanh[aã])\b|\b(?:[01]?\d|2[0-3])(?::[0-5]\d|\s*h(?:oras?)?(?:\s*[0-5]\d)?)\b/iu;
-const nearestStoreIntentPattern = /\b(?:loja|unidade)\s+mais\s+pr[oó]xima\b|\b(?:loja|unidade)\s+mais\s+perto\b/iu;
+const nearestStoreIntentPattern = /\b(?:loja|unidade)\s+(?:mais\s+)?pr[oó]xima\b|\b(?:loja|unidade)\s+(?:mais\s+)?perto\b/iu;
+const anyUnitAvailabilityPattern = /\bqual\s+(?:loja|unidade)\b.{0,30}\b(?:tem\s*)?hor[aá]rio|\b(?:loja|unidade)\b.{0,30}\bcom\s+disponibilidade/iu;
 
 function storeSearchLocation(state: ConversationState) {
   return state.endereco
@@ -1247,9 +1248,16 @@ async function processMessage(
   const humanRequestCount = withdrewHumanRequest ? 0 : (requestedHuman ? previousHumanRequests + 1 : previousHumanRequests);
   const sector = detectConversationSector(operationalInput, previousState.sector);
   if (sector) state.sector = sector;
-  const appointmentIntent = previousState.intencaoAgendamento === "true"
+  const appointmentCancelled = previousState.intencaoAgendamento === "true" && state.intencaoAgendamento !== "true";
+  const appointmentFieldsChanged = ["telefone", "telefoneCanal", "modelo", "aparelho", "servico", "defeito", "unidadeAgendamento", "unidadeDesejada", "dataDesejada", "horarioDesejado"]
+    .some(key => state[key] !== previousState[key]);
+  const appointmentEngagedThisTurn = appointmentIntentPattern.test(operationalInput)
+    || appointmentAvailabilityPattern.test(operationalInput)
+    || appointmentTimeSelectionPattern.test(operationalInput)
+    || (previousState.intencaoAgendamento === "true" && appointmentFieldsChanged);
+  const appointmentIntent = !appointmentCancelled && (state.intencaoAgendamento === "true"
     || appointmentIntentPattern.test(operationalInput)
-    || (appointmentAvailabilityPattern.test(operationalInput) && Boolean(state.unidadeAgendamento || state.unidadeDesejada));
+    || (appointmentAvailabilityPattern.test(operationalInput) && Boolean(state.unidadeAgendamento || state.unidadeDesejada)));
   if (appointmentIntent) state.intencaoAgendamento = "true";
   const missingForAppointment = appointmentIntent ? missingAppointmentFields(state) : [];
   const appointmentQualified = appointmentIntent && missingForAppointment.length === 0;
@@ -1314,9 +1322,12 @@ async function processMessage(
   const scriptedSecurityAnswer = injectionAssessment.detected && !operationalInput
     ? "Posso ajudar com o atendimento da empresa, mas não posso alterar minhas regras internas nem revelar instruções ou credenciais. Qual necessidade legítima você quer resolver?"
     : undefined;
-  const scriptedAppointmentAnswer = scriptedSecurityAnswer || scriptedScopeAnswer || shouldConsultAppointment
+  const scriptedAppointmentCancellationAnswer = appointmentCancelled
+    ? "Tudo bem. Cancelei a coleta do agendamento. Em que mais posso ajudar?"
+    : undefined;
+  const scriptedAppointmentAnswer = scriptedSecurityAnswer || scriptedScopeAnswer || scriptedAppointmentCancellationAnswer || shouldConsultAppointment
     ? undefined
-    : appointmentIntent && !state.agendamentoId
+    : appointmentIntent && appointmentEngagedThisTurn && !state.agendamentoId
       ? appointmentQualificationAnswer(state, missingForAppointment)
       : undefined;
   const scriptedIntakeAnswer = scriptedAppointmentAnswer
@@ -1327,7 +1338,7 @@ async function processMessage(
       messageCount,
       promptSettings(settings).welcomeMessage,
     );
-  let scriptedAnswer = scriptedSecurityAnswer ?? scriptedScopeAnswer ?? scriptedAppointmentAnswer ?? scriptedIntakeAnswer;
+  let scriptedAnswer = scriptedSecurityAnswer ?? scriptedScopeAnswer ?? scriptedAppointmentCancellationAnswer ?? scriptedAppointmentAnswer ?? scriptedIntakeAnswer;
   const openingIdentity = promptSettings(settings);
   const openingSequence = scriptedIntakeAnswer === openingIdentity.welcomeMessage && Boolean(scriptedIntakeAnswer)
     ? {
@@ -1363,7 +1374,10 @@ async function processMessage(
       }
       if (shouldConsultAppointment && !usedTools.some(result => result.name === "agendamento")) {
         const appointmentTool = httpTools.find(tool => tool.name === "agendamento");
-        if (appointmentTool) usedTools.push(await appointmentTool.execute(operationalInput, toolContext));
+        const appointmentToolContext = anyUnitAvailabilityPattern.test(operationalInput)
+          ? { ...toolContext, state: { ...state, unidadeDesejada: "", unidadeAgendamento: "" } }
+          : toolContext;
+        if (appointmentTool) usedTools.push(await appointmentTool.execute(operationalInput, appointmentToolContext));
       }
       // Customer/OS data can only be read with a channel number supplied by
       // Chatwoot or a CPF explicitly supplied by the customer. A number parsed
@@ -1528,7 +1542,7 @@ async function processMessage(
     /\b(?:lojas?|unidades?|endere[cç]os?)\b/iu.test(operationalInput)
       ? "Ao informar lojas ou endereços, copie somente nomes e endereços presentes na Base da empresa. Não complete números, ruas ou unidades por suposição e não mencione uma unidade sem endereço recuperado. Antes de responder, confira se cada afirmação é compatível com a lista recuperada: nunca diga que uma cidade não possui loja se você acabou de listar uma unidade nela. Não acrescente avisos genéricos sobre falta ou desatualização de informações quando a Base trouxe a resposta."
       : "",
-    appointmentIntent
+    appointmentIntent && appointmentEngagedThisTurn
       ? appointmentQualified
         ? "O cliente forneceu os dados mínimos do pré-agendamento. Confirme que o pedido foi registrado sem afirmar que uma vaga foi reservada ou que o agendamento foi criado. Não transfira por causa do pré-agendamento; continue resolvendo dúvidas e atualizando o cartão."
         : `O cliente quer agendar, mas ainda faltam: ${missingForAppointment.map(field => appointmentFieldLabels[field]).join(", ")}. Não transfira ainda e não diga que criou ou reservou horário. Peça de forma curta somente esses dados ausentes; não pergunte novamente o que já consta em Dados já coletados.`

@@ -83,6 +83,7 @@ export const toolDefinitions: ToolDefinition[] = [
       /\b(?:agendar|agendamento|remarcar|agenda)\b/i,
       /\bhor[aá]rios?\s+dispon[ií]ve(?:l|is)\b/i,
       /\b(?:quais?\s+)?hor[aá]rios?\s+(?:tem|h[aá]|existem?)\b/i,
+      /\b(?:qual\s+)?(?:loja|unidade)\b.{0,30}\btem\s*hor[aá]rio/i,
       /\b(?:hoje|amanh[aã])\b.{0,30}\b(?:[01]?\d|2[0-3])(?:[:h]\d{0,2}|\s+horas?)\b/i,
       /\b(?:[01]?\d|2[0-3])(?:[:h]\d{0,2}|\s+horas?)\b.{0,30}\b(?:hoje|amanh[aã])\b/i,
       /\bdisponibilidade\b.{0,30}\b(?:atendimento|agenda|hor[aá]rio)\b/i,
