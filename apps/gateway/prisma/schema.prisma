@@ -115,6 +115,7 @@ enum ProviderScope {
 enum AdminRole {
   PLATFORM_ADMIN
   TENANT_USER
+  CHANNEL_MANAGER
 }
 
 enum AdminAuthSource {

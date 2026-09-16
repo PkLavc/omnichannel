@@ -87,6 +87,21 @@ test("capabilities separam administrador de plataforma e usuário de tenant", ()
   };
   requireAdminCapability(platformPrincipal, "providers:write");
   requireTenantAuthorization(platformPrincipal, "qualquer-tenant", "tenant:write");
+
+  const channelPrincipal = {
+    ...tenantPrincipal,
+    role: AdminRole.CHANNEL_MANAGER,
+    capabilities: capabilitiesForRole(AdminRole.CHANNEL_MANAGER),
+  };
+  requireTenantAuthorization(channelPrincipal, "tenant-a", "channels:write");
+  assert.throws(
+    () => requireTenantAuthorization(channelPrincipal, "tenant-a", "tenant:read"),
+    (error: unknown) => error instanceof AdminAuthError && error.code === "forbidden",
+  );
+  assert.throws(
+    () => requireTenantAuthorization(channelPrincipal, "tenant-b", "channels:read"),
+    (error: unknown) => error instanceof AdminAuthError && error.code === "tenant_forbidden",
+  );
 });
 
 test("createUser normaliza e-mail, associa tenant ativo e não retorna passwordHash", async () => {

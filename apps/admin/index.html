@@ -92,13 +92,13 @@
         <button class="active" data-page="overview">Visão geral</button>
         <button data-page="tenants" data-capability="manageTenants">Bots / empresas</button>
         <button data-page="users" data-capability="manageUsers">Usuários / acessos</button>
-        <button data-page="identity">Identidade</button>
-        <button data-page="ai">IA e providers / chaves</button>
-        <button data-page="chatwoot">Chatwoot</button>
-        <button data-page="knowledge">Conhecimento / RAG</button>
-        <button data-page="tools">Tools</button>
-        <button data-page="operations">Operação / regras</button>
-        <button data-page="improvement">Melhoria contínua</button>
+        <button data-page="identity" data-capability="tenantRead">Identidade</button>
+        <button data-page="ai" data-capability="tenantRead">IA e providers / chaves</button>
+        <button data-page="chatwoot" data-capability="channelsRead">Canais</button>
+        <button data-page="knowledge" data-capability="tenantRead">Conhecimento / RAG</button>
+        <button data-page="tools" data-capability="tenantRead">Tools</button>
+        <button data-page="operations" data-capability="tenantRead">Operação / regras</button>
+        <button data-page="improvement" data-capability="tenantRead">Melhoria contínua</button>
       </nav>
       <div class="sidebar-foot"><button id="logoutButton" class="btn ghost" type="button">Encerrar sessão</button></div>
     </aside>
@@ -261,19 +261,19 @@
         </section>
 
         <section id="page-chatwoot" class="page">
-          <div class="page-head"><div><h2>Integração Chatwoot</h2><p class="muted">Entrega de respostas, múltiplos canais, webhook e transferência humana.</p></div><div class="inline"><button class="btn ghost" data-action="test-chatwoot">Salvar e testar</button><button class="btn" data-action="save-chatwoot">Salvar integração</button></div></div>
+          <div class="page-head"><div><h2>Canais de comunicação</h2><p class="muted">Defina quais canais Chatwoot pertencem ao bot selecionado.</p></div><div class="inline"><button class="btn ghost" data-action="test-chatwoot">Salvar e testar</button><button class="btn" data-action="save-chatwoot">Salvar canais</button></div></div>
           <div class="card">
             <div class="grid">
-              <div class="col-4 field"><label for="cwUrl">URL interna</label><input id="cwUrl" placeholder="http://chatwoot:3000"></div>
-              <div class="col-2 field"><label for="cwAccount">Account ID</label><input id="cwAccount"></div>
+              <div class="col-4 field channel-config-full"><label for="cwUrl">URL interna</label><input id="cwUrl" placeholder="http://chatwoot:3000"></div>
+              <div class="col-2 field channel-config-full"><label for="cwAccount">Account ID</label><input id="cwAccount"></div>
               <div class="col-6 field"><label for="cwInbox">Inbox IDs dos canais desta empresa</label><textarea id="cwInbox" rows="3" placeholder="1&#10;2&#10;3"></textarea><small>Use vírgulas ou uma linha por ID. Todas as inboxes informadas devem pertencer à empresa selecionada.</small></div>
-              <div class="col-2 field"><label for="cwTeam">Team ID padrão</label><input id="cwTeam" type="number" min="1"></div>
-              <div class="col-2 field"><label for="cwAssignee">Assignee ID padrão</label><input id="cwAssignee" type="number" min="1"></div>
-              <div class="col-8 field"><label for="cwWebhook">URL do webhook desta empresa</label><input id="cwWebhook" placeholder="http://gateway:3001/webhooks/chatwoot/:tenantSlug"></div>
-              <div class="col-3 field"><label for="cwToken">Novo API access token</label><input id="cwToken" type="password" autocomplete="new-password" placeholder="Manter o atual"></div>
-              <div class="col-3 field"><label for="cwWebhookSecret">Novo segredo do webhook</label><input id="cwWebhookSecret" type="password" autocomplete="new-password" placeholder="Manter o atual"></div>
-              <div class="col-6"><label class="check"><input id="cwClearToken" type="checkbox"> Remover token salvo</label></div>
-              <div class="col-6"><label class="check"><input id="cwClearSecret" type="checkbox"> Remover segredo salvo</label></div>
+              <div class="col-2 field channel-config-full"><label for="cwTeam">Team ID padrão</label><input id="cwTeam" type="number" min="1"></div>
+              <div class="col-2 field channel-config-full"><label for="cwAssignee">Assignee ID padrão</label><input id="cwAssignee" type="number" min="1"></div>
+              <div class="col-8 field channel-config-full"><label for="cwWebhook">URL do webhook desta empresa</label><input id="cwWebhook" placeholder="http://gateway:3001/webhooks/chatwoot/:tenantSlug"></div>
+              <div class="col-3 field channel-config-full"><label for="cwToken">Novo API access token</label><input id="cwToken" type="password" autocomplete="new-password" placeholder="Manter o atual"></div>
+              <div class="col-3 field channel-config-full"><label for="cwWebhookSecret">Novo segredo do webhook</label><input id="cwWebhookSecret" type="password" autocomplete="new-password" placeholder="Manter o atual"></div>
+              <div class="col-6 channel-config-full"><label class="check"><input id="cwClearToken" type="checkbox"> Remover token salvo</label></div>
+              <div class="col-6 channel-config-full"><label class="check"><input id="cwClearSecret" type="checkbox"> Remover segredo salvo</label></div>
             </div>
           </div>
           <div class="card">
@@ -634,7 +634,9 @@
       manageUsers:['users:write','manageUsers','users.write'],
       manageProviders:['providers:write','manageProviders','providers.write'],
       tenantRead:['tenant:read','tenant:write','tenantRead','tenantWrite'],
-      tenantWrite:['tenant:write','tenantWrite','tenant.write']
+      tenantWrite:['tenant:write','tenantWrite','tenant.write'],
+      channelsRead:['channels:read','channels:write','channelsRead','channelsWrite'],
+      channelsWrite:['channels:write','channelsWrite','channels.write']
     };
     var values=capabilityValues();
     if(values.includes('admin:global')||values.includes('globalAdmin')||values.includes('admin.global'))return true;
@@ -789,6 +791,11 @@
       }else{state.providers=[];state.health.providers=[]}
       renderAll();return;
     }
+    if(hasCapability('channelsRead')&&!hasCapability('tenantRead')){
+      var channelResults=await Promise.all([publicHealth(),request('/admin/chatwoot/channels')]);
+      state.health=channelResults[0]||{};state.settings=channelResults[1]||{};state.branding={};state.providers=[];state.documents=[];state.tools=[];state.conversations=[];state.logs=[];state.setup={completed:true,firstRun:false,infrastructure:{}};state.businessRules=null;state.catalogSync=null;
+      renderAll();switchPage('chatwoot');return;
+    }
     var limit=el('logLimit')?el('logLimit').value:'100';
     var canManageProviders=hasCapability('manageProviders');
     var results=await Promise.all([
@@ -895,12 +902,13 @@
   function applyCapabilities(){
     document.querySelectorAll('[data-capability]').forEach(function(item){item.classList.toggle('capability-hidden',!hasCapability(item.dataset.capability))});
     document.querySelectorAll('[data-capability-section]').forEach(function(item){item.classList.toggle('capability-hidden',!hasCapability(item.dataset.capabilitySection))});
-    var tenantPages=['identity','ai','chatwoot','knowledge','tools','operations','improvement'];
-    document.querySelectorAll('.nav [data-page]').forEach(function(item){if(tenantPages.includes(item.dataset.page))item.classList.toggle('capability-hidden',!hasCapability('tenantRead'))});
+    var channelOnly=hasCapability('channelsRead')&&!hasCapability('tenantRead');
+    document.querySelectorAll('.channel-config-full').forEach(function(item){item.classList.toggle('capability-hidden',channelOnly)});
+    ['Roteamento por setor','Horário comercial'].forEach(function(title){document.querySelectorAll('#page-chatwoot .card h3').forEach(function(heading){if(heading.textContent.trim()===title)heading.closest('.card').classList.toggle('capability-hidden',channelOnly)})});
     el('providersAccessNote').classList.toggle('hidden',hasCapability('manageProviders'));
     var globalPageCapability={tenants:'manageTenants',users:'manageUsers'};
     if(globalPageCapability[currentPage]&&!hasCapability(globalPageCapability[currentPage]))switchPage('overview');
-    document.querySelectorAll('[data-action]').forEach(function(button){if(isTenantMutationAction(button.dataset.action))button.disabled=!selectedTenantId||!hasCapability('tenantWrite')});
+    document.querySelectorAll('[data-action]').forEach(function(button){if(isTenantMutationAction(button.dataset.action)){var channelAction=['save-chatwoot','test-chatwoot'].includes(button.dataset.action);button.disabled=!selectedTenantId||!(channelAction?hasCapability('channelsWrite'):hasCapability('tenantWrite'))}});
   }
   function isTenantMutationAction(action){return ['save-identity','save-ai-settings','save-chatwoot','test-chatwoot','upload-rag','save-rag','reindex-all','reindex-rag','delete-rag','save-tool','test-tool','save-catalog-sync','run-catalog-sync','save-business-rules','clear-business-rules','discover-learning','approve-learning','reject-learning','save-outcome','add-commerce-link','add-feedback','evaluate-conversation','materialize-dataset','publish-dataset','create-prompt-version','approve-prompt-version','compare-prompt-versions','release-prompt','rollback-prompt','wizard-test','wizard-next'].includes(action)}
   function requireCapability(name,message){if(hasCapability(name))return true;showNotice(message||'Seu usuário não possui permissão para esta ação.',true);return false}
@@ -1189,15 +1197,21 @@
     return {chatwootUrl:el('cwUrl').value.trim()||null,chatwootAccountId:el('cwAccount').value.trim()||null,chatwootInboxIds:inboxIds,chatwootInboxId:inboxIds[0]||null,chatwootWebhookUrl:el('cwWebhook').value.trim()||null,chatwootApiToken:el('cwClearToken').checked?null:(el('cwToken').value||undefined),webhookSecret:el('cwClearSecret').checked?null:(el('cwWebhookSecret').value||undefined),chatwootTeamId:numberOrNull(el('cwTeam').value),chatwootAssigneeId:numberOrNull(el('cwAssignee').value),chatwootSectorRoutes:chatwootSectorRoutesFromForm(),businessHours:{timezone:el('timezone').value.trim()||'America/Sao_Paulo',schedule:schedule}};
   }
   async function saveChatwoot(silent){
-    var result=await request('/admin/settings',{method:'PUT',body:JSON.stringify(chatwootPayload())});
-    if(!silent){showNotice('Integração Chatwoot salva.');await reloadSettings()}
+    var channelOnly=hasCapability('channelsWrite')&&!hasCapability('tenantWrite');
+    var payload=channelOnly?{chatwootInboxIds:parseChatwootInboxIds(el('cwInbox').value)}:chatwootPayload();
+    var result=await request(channelOnly?'/admin/chatwoot/channels':'/admin/settings',{method:'PUT',body:JSON.stringify(payload)});
+    if(!silent){showNotice('Canais Chatwoot salvos.');await reloadSettings()}
     return result;
   }
   async function testChatwoot(){
     try{await saveChatwoot(true);var result=await request('/admin/chatwoot/test',{method:'POST',body:'{}'});showNotice('Chatwoot conectado'+(result.latencyMs?' em '+result.latencyMs+' ms.':'.'));await reloadSettings()}
     catch(error){showNotice('Falha no Chatwoot: '+error.message,true)}
   }
-  async function reloadSettings(){state.settings=await request('/admin/settings');state.branding=Object.assign({},state.settings,await optionalRequest('/admin/branding',{}));fillChatwoot();applyBranding();renderOverview()}
+  async function reloadSettings(){
+    if(hasCapability('channelsRead')&&!hasCapability('tenantRead')){state.settings=await request('/admin/chatwoot/channels');state.branding={}}
+    else{state.settings=await request('/admin/settings');state.branding=Object.assign({},state.settings,await optionalRequest('/admin/branding',{}))}
+    fillChatwoot();applyBranding();renderOverview();applyCapabilities()
+  }
 
   function ragMatches(value,source,externalId){return Boolean(value)&&String(value.source||'')===String(source||'')&&String(value.externalId||'')===String(externalId||'')}
   function clearActiveRag(){state.activeRag=null}

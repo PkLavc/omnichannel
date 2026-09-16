@@ -183,6 +183,9 @@ const settingsSchema = z.object({
   chatwootSectorRoutes: z.array(chatwootSectorRouteSchema).max(3).optional(),
   businessHours: businessHoursSchema.optional(),
 }).partial();
+const chatwootChannelsSchema = z.object({
+  chatwootInboxIds: z.array(z.string().trim().min(1).max(100)).max(100),
+}).strict();
 const toolAuthSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("none") }),
   z.object({ type: z.literal("bearer"), token: z.string().min(1) }),
@@ -495,7 +498,7 @@ app.setErrorHandler((error, _request, reply) => {
 type TenantRow = Awaited<ReturnType<typeof prisma.tenant.findFirstOrThrow>>;
 
 async function tenant(
-  capability: "tenant:read" | "tenant:write" = "tenant:read",
+  capability: AdminCapability = "tenant:read",
   request = requestContext.getStore(),
 ) {
   if (!request || !request.url.startsWith("/admin/") && !request.url.startsWith("/v1/")) {
@@ -1995,7 +1998,7 @@ app.put("/admin/users/:id", async (request, reply) => {
   }
   const nextRole = parsed.data.role ?? existing.role;
   const nextTenantIds = [...new Set(parsed.data.tenantIds ?? existing.memberships.map(item => item.tenantId))];
-  if (nextRole === AdminRole.TENANT_USER && nextTenantIds.length === 0) {
+  if (nextRole !== AdminRole.PLATFORM_ADMIN && nextTenantIds.length === 0) {
     return reply.code(400).send({ error: "tenant_membership_required" });
   }
   const activeTenantCount = nextTenantIds.length
@@ -2323,6 +2326,25 @@ app.put("/admin/settings", async (request, reply) => {
   const updated = await saveTenantSettings(await tenant("tenant:write", request), parsed.data);
   return { saved: true, settings: safeTenantSettings(updated.settings) };
 });
+app.get("/admin/chatwoot/channels", async (request) => {
+  const currentTenant = await tenant("channels:read", request);
+  const settings = currentTenant.settings as Record<string, unknown>;
+  return {
+    chatwootInboxIds: configuredChatwootInboxIds(settings),
+    configured: Boolean(settings.chatwootUrl && settings.chatwootAccountId && settings.chatwootApiToken),
+  };
+});
+app.put("/admin/chatwoot/channels", async (request, reply) => {
+  const parsed = chatwootChannelsSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+  const currentTenant = await tenant("channels:write", request);
+  const inboxIds = [...new Set(parsed.data.chatwootInboxIds)];
+  const updated = await saveTenantSettings(currentTenant, {
+    chatwootInboxIds: inboxIds,
+    chatwootInboxId: inboxIds[0] ?? null,
+  });
+  return { saved: true, chatwootInboxIds: configuredChatwootInboxIds(updated.settings as Record<string, unknown>) };
+});
 app.get("/admin/branding", async (request) => safeTenantSettings((await tenant("tenant:read", request)).settings));
 app.put("/admin/branding", async (request, reply) => {
   const parsed = settingsSchema.safeParse(request.body);
@@ -2492,7 +2514,7 @@ app.post("/admin/setup/complete", async (request, reply) => {
 });
 
 app.post("/admin/chatwoot/test", async (_request, reply) => {
-  const currentTenant = await tenant("tenant:write", _request);
+  const currentTenant = await tenant("channels:write", _request);
   const settings = currentTenant.settings as Record<string, unknown>;
   const started = Date.now();
   try {

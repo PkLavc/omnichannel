@@ -28,13 +28,16 @@ export const adminCapabilities = [
   "providers:write",
   "tenant:read",
   "tenant:write",
+  "channels:read",
+  "channels:write",
 ] as const;
 
 export type AdminCapability = typeof adminCapabilities[number];
 
 const roleCapabilities: Record<AdminRole, readonly AdminCapability[]> = {
   [AdminRole.PLATFORM_ADMIN]: adminCapabilities,
-  [AdminRole.TENANT_USER]: ["tenant:read", "tenant:write"],
+  [AdminRole.TENANT_USER]: ["tenant:read", "tenant:write", "channels:read", "channels:write"],
+  [AdminRole.CHANNEL_MANAGER]: ["channels:read", "channels:write"],
 };
 
 export type AdminPrincipal = {
@@ -307,7 +310,7 @@ export function requireAdminCapability(
 export function requireTenantAuthorization(
   principal: AdminPrincipal,
   tenantId: string,
-  capability: "tenant:read" | "tenant:write" = "tenant:read",
+  capability: AdminCapability = "tenant:read",
 ) {
   requireAdminCapability(principal, capability);
   if (!canAccessTenant(principal, tenantId)) {
@@ -402,7 +405,7 @@ export class AdminAuthService {
     const name = validateDisplayName(input.name);
     validatePassword(input.password);
     const tenantIds = await this.requireActiveTenantIds(input.tenantIds ?? []);
-    if (input.role === AdminRole.TENANT_USER && !tenantIds.length) {
+    if (input.role !== AdminRole.PLATFORM_ADMIN && !tenantIds.length) {
       throw new AdminAuthError(
         "tenant_membership_required",
         "Usuários de tenant precisam de ao menos um tenant ativo.",
@@ -439,7 +442,7 @@ export class AdminAuthService {
       );
     }
     const normalizedIds = await this.requireActiveTenantIds(tenantIds);
-    if (user.role === AdminRole.TENANT_USER && !normalizedIds.length) {
+    if (user.role !== AdminRole.PLATFORM_ADMIN && !normalizedIds.length) {
       throw new AdminAuthError(
         "tenant_membership_required",
         "Usuários de tenant precisam de ao menos um tenant ativo.",
@@ -523,7 +526,7 @@ export class AdminAuthService {
       throw new AdminAuthError("invalid_credentials", "Credenciais inválidas.", 401);
     }
     const tenantIds = user.memberships.map(item => item.tenantId);
-    if (user.role === AdminRole.TENANT_USER && !tenantIds.length) {
+    if (user.role !== AdminRole.PLATFORM_ADMIN && !tenantIds.length) {
       throw new AdminAuthError("user_without_active_tenant", "Usuário não possui tenant ativo.", 403);
     }
     const issuedAt = this.now();
@@ -600,7 +603,7 @@ export class AdminAuthService {
     const email = normalizeAdminEmail(claims.email);
     const name = validateDisplayName(claims.name);
     const tenantSlugs = [...new Set(claims.tenantSlugs.map(slug => slug.trim()))];
-    if (claims.role === AdminRole.TENANT_USER && !tenantSlugs.length) {
+    if (claims.role !== AdminRole.PLATFORM_ADMIN && !tenantSlugs.length) {
       throw new AdminAuthError(
         "sso_tenant_required",
         "O acesso de tenant emitido pelo Nexus não possui empresas associadas.",
@@ -756,7 +759,7 @@ export class AdminAuthService {
       throw new AdminAuthError("invalid_session", "Sessão inválida ou revogada.", 401);
     }
     const tenantIds = session.user.memberships.map(item => item.tenantId);
-    if (session.user.role === AdminRole.TENANT_USER && !tenantIds.length) {
+    if (session.user.role !== AdminRole.PLATFORM_ADMIN && !tenantIds.length) {
       throw new AdminAuthError("user_without_active_tenant", "Usuário não possui tenant ativo.", 403);
     }
     if (
@@ -783,7 +786,7 @@ export class AdminAuthService {
   async requireActiveTenantAccess(
     principal: AdminPrincipal,
     tenantId: string,
-    capability: "tenant:read" | "tenant:write" = "tenant:read",
+    capability: AdminCapability = "tenant:read",
   ) {
     requireTenantAuthorization(principal, tenantId, capability);
     const tenant = await this.prisma.tenant.findFirst({

@@ -247,6 +247,22 @@ test("SSO TENANT_USER resolve somente slugs ativos e atualiza dados e membership
   assert.deepEqual(state.memberships, [{ userId: state.users[0]!.id, tenantId: "tenant-b" }]);
 });
 
+test("SSO CHANNEL_MANAGER recebe somente capacidades de canais nos tenants emitidos", async () => {
+  const { prisma } = memoryPrisma({
+    tenants: [
+      { id: "tenant-a", slug: "company-alpha", active: true },
+      { id: "tenant-b", slug: "company-beta", active: true },
+    ],
+  });
+  const service = new AdminAuthService(prisma, { sessionSecret: secret, now: () => now });
+  const result = await service.authenticateWithNexus(claims({
+    role: AdminRole.CHANNEL_MANAGER,
+    tenantSlugs: ["company-alpha", "company-beta"],
+  }));
+  assert.deepEqual(result.principal.tenantIds, ["tenant-a", "tenant-b"]);
+  assert.deepEqual(result.principal.capabilities, ["channels:read", "channels:write"]);
+});
+
 test("SSO TENANT_USER rejeita tenant inexistente ou ausência de tenant", async () => {
   const { prisma } = memoryPrisma({
     tenants: [{ id: "tenant-a", slug: "company-alpha", active: true }],
