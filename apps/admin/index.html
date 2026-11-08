@@ -663,9 +663,9 @@
     return payload;
   }
   async function optionalRequest(path,fallback){try{return await request(path)}catch(error){if(error.status===404)return fallback;throw error}}
-  async function publicHealth(){var response=await fetch(apiBase+'/health');if(!response.ok)throw new Error('Gateway indisponível');return response.json()}
+  async function publicHealth(){var response=await fetch(apiBase+'/health',{signal:AbortSignal.timeout(5_000)});if(!response.ok)throw new Error('Gateway indisponível');return response.json()}
   async function credentialLogin(username,password){
-    var response=await fetch(apiBase+'/admin/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:username,password:password})});
+    var response=await fetch(apiBase+'/admin/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:username,password:password}),signal:AbortSignal.timeout(15_000)});
     var text=await response.text(),payload=null;
     if(text){try{payload=JSON.parse(text)}catch(ignore){payload=text}}
     if(response.status===401)throw new Error('Sessão expirada ou inválida');
@@ -681,7 +681,7 @@
   async function nexusSsoLogin(code){
     var body=JSON.stringify({code:code});
     code='';
-    var response=await fetch(apiBase+'/admin/auth/nexus',{method:'POST',headers:{'content-type':'application/json'},body:body});
+    var response=await fetch(apiBase+'/admin/auth/nexus',{method:'POST',headers:{'content-type':'application/json'},body:body,signal:AbortSignal.timeout(15_000)});
     body='';
     var text=await response.text(),payload=null;
     if(text){try{payload=JSON.parse(text)}catch(ignore){payload=text}}
